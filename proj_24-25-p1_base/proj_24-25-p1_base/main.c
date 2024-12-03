@@ -6,12 +6,29 @@
 #include "constants.h"
 #include "parser.h"
 #include "operations.h"
+#include <string.h>
 
 int main() {
-
+  char file_path[1024];
+  FILE *file;
   if (kvs_init()) {
     fprintf(stderr, "Failed to initialize KVS\n");
     return 1;
+  }
+  printf("> ");
+  fflush(stdout);
+    
+  if (fgets(file_path, sizeof(file_path), stdin) == NULL) {
+    fprintf(stderr, "Error reading file path\n");
+    return EXIT_FAILURE;
+  }
+
+  file_path[strcspn(file_path, "\n")] = '\0';
+
+  file = fopen(file_path, "r");
+  if (file == NULL) {
+    perror("Error opening file");
+    return EXIT_FAILURE;
   }
 
   while (1) {
@@ -20,12 +37,9 @@ int main() {
     unsigned int delay;
     size_t num_pairs;
 
-    printf("> ");
-    fflush(stdout);
-
-    switch (get_next(STDIN_FILENO)) {
+    switch (get_next(fileno(file))) {
       case CMD_WRITE:
-        num_pairs = parse_write(STDIN_FILENO, keys, values, MAX_WRITE_SIZE, MAX_STRING_SIZE);
+        num_pairs = parse_write(fileno(file), keys, values, MAX_WRITE_SIZE, MAX_STRING_SIZE);
         if (num_pairs == 0) {
           fprintf(stderr, "Invalid command. See HELP for usage\n");
           continue;
@@ -38,7 +52,7 @@ int main() {
         break;
 
       case CMD_READ:
-        num_pairs = parse_read_delete(STDIN_FILENO, keys, MAX_WRITE_SIZE, MAX_STRING_SIZE);
+        num_pairs = parse_read_delete(fileno(file), keys, MAX_WRITE_SIZE, MAX_STRING_SIZE);
 
         if (num_pairs == 0) {
           fprintf(stderr, "Invalid command. See HELP for usage\n");
@@ -51,7 +65,7 @@ int main() {
         break;
 
       case CMD_DELETE:
-        num_pairs = parse_read_delete(STDIN_FILENO, keys, MAX_WRITE_SIZE, MAX_STRING_SIZE);
+        num_pairs = parse_read_delete(fileno(file), keys, MAX_WRITE_SIZE, MAX_STRING_SIZE);
 
         if (num_pairs == 0) {
           fprintf(stderr, "Invalid command. See HELP for usage\n");
@@ -69,7 +83,7 @@ int main() {
         break;
 
       case CMD_WAIT:
-        if (parse_wait(STDIN_FILENO, &delay, NULL) == -1) {
+        if (parse_wait(fileno(file), &delay, NULL) == -1) {
           fprintf(stderr, "Invalid command. See HELP for usage\n");
           continue;
         }
@@ -111,6 +125,8 @@ int main() {
       case EOC:
         kvs_terminate();
         return 0;
+      
     }
   }
+  fclose(file);
 }
