@@ -68,7 +68,6 @@ int kvs_read(size_t num_pairs, char keys[][MAX_STRING_SIZE]) {
     return 1;
   }
 
-<<<<<<< HEAD
   printf("[");
   for (size_t i = 0; i < num_pairs; i++) {
     char* result = read_pair(kvs_table, keys[i]);
@@ -80,18 +79,6 @@ int kvs_read(size_t num_pairs, char keys[][MAX_STRING_SIZE]) {
     free(result);
   }
   printf("]\n");
-=======
-  fprintf(stderr, "[");
-  for (size_t i = 0; i < num_pairs; i++) {
-    char* result = read_pair(kvs_table, keys[i]);
-    if (result == NULL) {
-      fprintf(stderr, "(%s,KVSERROR)", keys[i]);
-    } else {
-      fprintf(stderr, "(%s,%s)", keys[i], result);
-    }
-  }
-  fprintf(stderr, "]\n");
->>>>>>> 549e229b4855927ecfd54ce5628c38c00dfb30a0
   return 0;
 }
 
@@ -100,7 +87,6 @@ int kvs_delete(size_t num_pairs, char keys[][MAX_STRING_SIZE]) {
     fprintf(stderr, "KVS state must be initialized\n");
     return 1;
   }
-<<<<<<< HEAD
   int aux = 0;
 
   for (size_t i = 0; i < num_pairs; i++) {
@@ -115,14 +101,6 @@ int kvs_delete(size_t num_pairs, char keys[][MAX_STRING_SIZE]) {
   if (aux) {
     printf("]\n");
   }
-=======
-
-  for (size_t i = 0; i < num_pairs; i++) {
-    if (delete_pair(kvs_table, keys[i]) != 0) {
-      fprintf(stderr, "(%s,KVSMISSING)", keys[i]);
-    }
-  }
->>>>>>> 549e229b4855927ecfd54ce5628c38c00dfb30a0
 
   return 0;
 }
