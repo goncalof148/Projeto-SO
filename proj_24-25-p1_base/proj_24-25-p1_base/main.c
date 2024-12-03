@@ -79,7 +79,7 @@ int main() {
 
       case CMD_SHOW:
 
-        kvs_show();
+        kvs_show(1);
         break;
 
       case CMD_WAIT:

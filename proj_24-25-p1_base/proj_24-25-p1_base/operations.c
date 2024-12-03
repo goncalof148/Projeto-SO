@@ -2,12 +2,20 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
+#include <fcntl.h>  
+#include <sys/wait.h>
 
 #include "kvs.h"
 #include "constants.h"
 
 static struct HashTable* kvs_table = NULL;
 
+static int running_backups = 0;
+static int running_backups_limit = 10;
+
+static int job_backup_number = 0;
+static int job_backup_limit = 100;
 
 /// Calculates a timespec from a delay in milliseconds.
 /// @param delay_ms Delay in milliseconds.
@@ -31,6 +39,9 @@ int kvs_terminate() {
     fprintf(stderr, "KVS state must be initialized\n");
     return 1;
   }
+
+  // terminate all child processes
+  while (wait(NULL) > 0);
 
   free_table(kvs_table);
   return 0;
@@ -116,17 +127,57 @@ int kvs_delete(size_t num_pairs, char keys[][MAX_STRING_SIZE]) {
   return 0;
 }
 
-void kvs_show() {
+void kvs_show(int fd) {
   for (int i = 0; i < TABLE_SIZE; i++) {
     KeyNode *keyNode = kvs_table->table[i];
     while (keyNode != NULL) {
-      printf("(%s, %s)\n", keyNode->key, keyNode->value);
+      dprintf(fd, "(%s, %s)\n", keyNode->key, keyNode->value);
       keyNode = keyNode->next; // Move to the next node
     }
   }
 }
 
 int kvs_backup() {
+  if (job_backup_number >= job_backup_limit) {
+    return -1;
+  }
+
+  if (running_backups >= running_backups_limit) {
+    wait(NULL);
+    running_backups--;
+  }
+
+  pid_t pid = fork();
+
+  if (pid < 0) {
+    fprintf(stderr, "Failed to fork");
+    return -1;
+  }
+  
+  job_backup_number++;
+
+  if (pid) {
+    // in parent
+    running_backups++;
+    // ignore and let it cook
+  } else {
+    // in child
+    
+    // TODO: properly implement file name
+    char filename[128];
+    sprintf(filename, "file-%d.bck", job_backup_number);
+    // create or truncate file if needed
+    int fd = open(filename, O_CREAT | O_TRUNC | O_WRONLY, S_IRUSR | S_IWUSR);
+    
+    if (fd < 0) {
+      fprintf(stderr, "Failed to open file.");
+      exit(-1);
+    }
+
+    kvs_show(fd);
+    exit(0);
+  }
+
   return 0;
 }
 
