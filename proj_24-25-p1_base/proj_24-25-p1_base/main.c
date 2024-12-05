@@ -7,23 +7,27 @@
 #include "parser.h"
 #include "operations.h"
 #include <string.h>
+#include <fcntl.h>
 
-int main() {
+int main(int argc, char *argv[]) {
   char file_path[1024];
+  strcpy(file_path,argv[1]);
+  int backups_number = atoi(argv[2]);
   char file_path_output[1024];
-  FILE *file;
-  FILE *file_output;
+
+  if (argc < 2) {
+        fprintf(stderr, "Usage: %s <backups_number>\n", argv[0]);
+        return 1;
+  }
+
   if (kvs_init()) {
     fprintf(stderr, "Failed to initialize KVS\n");
     return 1;
   }
-  printf("> ");
+
+  printf("%d\n", backups_number);
+  //printf("> ");
   fflush(stdout);
-    
-  if (fgets(file_path, sizeof(file_path), stdin) == NULL) {
-    fprintf(stderr, "Error reading file path\n");
-    return EXIT_FAILURE;
-  }
 
   file_path[strcspn(file_path, "\n")] = '\0';
   strcpy(file_path_output,file_path);
@@ -32,14 +36,15 @@ int main() {
       *dot_position = '\0';
   }
   strcat(file_path_output, ".output");
-  file = fopen(file_path, "r");
-  file_output = fopen(file_path_output, "w");
-  if (file == NULL) {
+  int fd = open(file_path, O_RDONLY);
+  int fd2 = open(file_path_output, O_CREAT | O_TRUNC | O_WRONLY, S_IRUSR | S_IWUSR);
+  
+  if (fd == -1) {
     perror("Error opening file");
     return EXIT_FAILURE;
   }
 
-  if (file_output == NULL) {
+  if (fd2 == -1) {
     perror("Error opening file");
     return EXIT_FAILURE;
   }
@@ -49,12 +54,12 @@ int main() {
     char values[MAX_WRITE_SIZE][MAX_STRING_SIZE] = {0};
     unsigned int delay;
     size_t num_pairs;
-    off_t last_position = lseek(fileno(file), 0, SEEK_CUR);
-    switch (get_next(fileno(file))) {
+    off_t last_position = lseek(fd, 0, SEEK_CUR);
+    switch (get_next(fd)) {
 
       case CMD_WRITE:
-        lseek(fileno(file), last_position + 6, SEEK_SET);
-        num_pairs = parse_write(fileno(file), keys, values, MAX_WRITE_SIZE, MAX_STRING_SIZE);
+        lseek(fd, last_position + 6, SEEK_SET);
+        num_pairs = parse_write(fd, keys, values, MAX_WRITE_SIZE, MAX_STRING_SIZE);
         if (num_pairs == 0) {
           fprintf(stderr, "Invalid command. See HELP for usage\n");
           continue;
@@ -67,45 +72,45 @@ int main() {
         break;
 
       case CMD_READ:
-        lseek(fileno(file), last_position + 5, SEEK_SET);
-        num_pairs = parse_read_delete(fileno(file), keys, MAX_WRITE_SIZE, MAX_STRING_SIZE);
+        lseek(fd, last_position + 5, SEEK_SET);
+        num_pairs = parse_read_delete(fd, keys, MAX_WRITE_SIZE, MAX_STRING_SIZE);
         if (num_pairs == 0) {
           fprintf(stderr, "Invalid command. See HELP for usage\n");
           continue;
         }
 
-        if (kvs_read(file_output,num_pairs, keys)) {
+        if (kvs_read(fd2,num_pairs, keys)) {
           fprintf(stderr, "Failed to read pair\n");
         }
         break;
 
       case CMD_DELETE:
-        lseek(fileno(file), last_position + 7, SEEK_SET);
-        num_pairs = parse_read_delete(fileno(file), keys, MAX_WRITE_SIZE, MAX_STRING_SIZE);
+        lseek(fd, last_position + 7, SEEK_SET);
+        num_pairs = parse_read_delete(fd, keys, MAX_WRITE_SIZE, MAX_STRING_SIZE);
 
         if (num_pairs == 0) {
           fprintf(stderr, "Invalid command. See HELP for usage\n");
           continue;
         }
 
-        if (kvs_delete(file_output,num_pairs, keys)) {
+        if (kvs_delete(fd2,num_pairs, keys)) {
           fprintf(stderr, "Failed to delete pair\n");
         }
         break;
 
       case CMD_SHOW:
-        kvs_show(file_output);
+        kvs_show(fd2);
         break;
 
       case CMD_WAIT:
-        lseek(fileno(file), last_position + 5, SEEK_SET);
-        if (parse_wait(fileno(file), &delay, NULL) == -1) {
+        lseek(fd, last_position + 5, SEEK_SET);
+        if (parse_wait(fd, &delay, NULL) == -1) {
           fprintf(stderr, "Invalid command. See HELP for usage\n");
           continue;
         }
 
         if (delay > 0) {
-          fprintf(file_output,"Waiting...\n");
+          dprintf(fd2,"Waiting...\n");
           kvs_wait(delay);
         }
         break;
@@ -139,8 +144,8 @@ int main() {
         break;
 
       case EOC:
-        fclose(file);
-        fclose(file_output);
+        close(fd);
+        close(fd2);
         kvs_terminate();
         return 0;
       
