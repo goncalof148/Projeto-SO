@@ -35,10 +35,7 @@ int write_pair(HashTable *ht, const char *key, const char *value) {
     // Search for the key node
     while (keyNode != NULL) {
         if (strcmp(keyNode->key, key) == 0) {
-<<<<<<< HEAD
             free(keyNode->value);
-=======
->>>>>>> 549e229b4855927ecfd54ce5628c38c00dfb30a0
             keyNode->value = strdup(value);
             return 0;
         }

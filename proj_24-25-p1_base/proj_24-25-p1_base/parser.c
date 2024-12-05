@@ -6,10 +6,6 @@
 #include <unistd.h>
 
 #include "constants.h"
-<<<<<<< HEAD
-#include <stdio.h>
-=======
->>>>>>> 549e229b4855927ecfd54ce5628c38c00dfb30a0
 
 static int read_string(int fd, char *buffer, size_t max) {
   ssize_t bytes_read;
@@ -109,10 +105,7 @@ enum Command get_next(int fd) {
         cleanup(fd);
         return CMD_INVALID;
       }
-<<<<<<< HEAD
-=======
 
->>>>>>> 549e229b4855927ecfd54ce5628c38c00dfb30a0
       return CMD_READ;
 
     case 'D':

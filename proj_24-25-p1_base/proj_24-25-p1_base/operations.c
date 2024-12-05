@@ -51,76 +51,54 @@ int kvs_write(size_t num_pairs, char keys[][MAX_STRING_SIZE], char values[][MAX_
   return 0;
 }
 
-int kvs_read(size_t num_pairs, char keys[][MAX_STRING_SIZE]) {
+int kvs_read(FILE *file, size_t num_pairs, char keys[][MAX_STRING_SIZE]) {
   if (kvs_table == NULL) {
     fprintf(stderr, "KVS state must be initialized\n");
     return 1;
   }
 
-<<<<<<< HEAD
-  printf("[");
+  fprintf(file, "[");
   for (size_t i = 0; i < num_pairs; i++) {
     char* result = read_pair(kvs_table, keys[i]);
     if (result == NULL) {
-      printf("(%s,KVSERROR)", keys[i]);
+      fprintf(file, "(%s,KVSERROR)", keys[i]);
     } else {
-      printf("(%s,%s)", keys[i], result);
+      fprintf(file, "(%s,%s)", keys[i], result);
     }
     free(result);
   }
-  printf("]\n");
-=======
-  fprintf(stderr, "[");
-  for (size_t i = 0; i < num_pairs; i++) {
-    char* result = read_pair(kvs_table, keys[i]);
-    if (result == NULL) {
-      fprintf(stderr, "(%s,KVSERROR)", keys[i]);
-    } else {
-      fprintf(stderr, "(%s,%s)", keys[i], result);
-    }
-  }
-  fprintf(stderr, "]\n");
->>>>>>> 549e229b4855927ecfd54ce5628c38c00dfb30a0
+  fprintf(file, "]\n");
   return 0;
 }
 
-int kvs_delete(size_t num_pairs, char keys[][MAX_STRING_SIZE]) {
+int kvs_delete(FILE *file, size_t num_pairs, char keys[][MAX_STRING_SIZE]) {
   if (kvs_table == NULL) {
     fprintf(stderr, "KVS state must be initialized\n");
     return 1;
   }
-<<<<<<< HEAD
   int aux = 0;
 
   for (size_t i = 0; i < num_pairs; i++) {
     if (delete_pair(kvs_table, keys[i]) != 0) {
       if (!aux) {
-        printf("[");
+        fprintf(file, "[");
         aux = 1;
       }
-      printf("(%s,KVSMISSING)", keys[i]);
+      fprintf(file, "(%s,KVSMISSING)", keys[i]);
     }
   }
   if (aux) {
-    printf("]\n");
+    fprintf(file, "]\n");
   }
-=======
-
-  for (size_t i = 0; i < num_pairs; i++) {
-    if (delete_pair(kvs_table, keys[i]) != 0) {
-      fprintf(stderr, "(%s,KVSMISSING)", keys[i]);
-    }
-  }
->>>>>>> 549e229b4855927ecfd54ce5628c38c00dfb30a0
 
   return 0;
 }
 
-void kvs_show() {
+void kvs_show(FILE *file) {
   for (int i = 0; i < TABLE_SIZE; i++) {
     KeyNode *keyNode = kvs_table->table[i];
     while (keyNode != NULL) {
-      printf("(%s, %s)\n", keyNode->key, keyNode->value);
+      fprintf(file, "(%s, %s)\n", keyNode->key, keyNode->value);
       keyNode = keyNode->next; // Move to the next node
     }
   }
