@@ -1,0 +1,16 @@
+#Leitura de chave inexistente
+READ [c2]
+#Criação e escrita de 2 chaves
+WRITE [(c2,v2)(chave3,valor-exemplo)]
+#Leitura de chave existente
+READ [chave3]
+#Escrita de uma chave nova e outra existente
+WRITE [(chave3,valor-exemplo2)(umaChave,umValor)]
+# backup
+BACKUP
+# Eliminação de chave existente e de chave não existente
+DELETE [c2,chaveAleatoria]
+#Espera de um segundo
+WAIT 1000
+# Impressão de toda a tabela
+SHOW

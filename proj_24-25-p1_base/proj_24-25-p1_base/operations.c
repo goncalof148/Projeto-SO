@@ -15,7 +15,6 @@ static int running_backups = 0;
 static int running_backups_limit = 10;
 
 static int job_backup_number = 0;
-static int job_backup_limit = 100;
 
 /// Calculates a timespec from a delay in milliseconds.
 /// @param delay_ms Delay in milliseconds.
@@ -116,10 +115,6 @@ void kvs_show(int fd) {
 }
 
 int kvs_backup() {
-  if (job_backup_number >= job_backup_limit) {
-    return -1;
-  }
-
   if (running_backups >= running_backups_limit) {
     wait(NULL);
     running_backups--;
