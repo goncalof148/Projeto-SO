@@ -3,3 +3,5 @@ kvs
 *.o
 
 .__afs*
+
+*.output

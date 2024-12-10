@@ -246,25 +246,27 @@ int main(int argc, char *argv[]) {
         // arg->file_path_output = file_path_output;
         arg->result = 0;
 
-        // process_job(input_file_path, output_file_path);
-
-        if (pthread_create(&thread_ids[job_id], NULL, process_job_thread, arg) != 0) {
-            fprintf(stderr, "Failed to create thread");
-            continue;
-        }
-
-        pthread_join(thread_ids[job_id], NULL);
-
         job_id++;
     }
 
-    // for (int i = 0; i < job_id; i++) {
-    //   pthread_join(thread_ids[i], NULL);
-    // }
+    closedir(dir);
+
+    for (int i = 0; i < job_id; i++) {
+        // process_job(input_file_path, output_file_path);
+        job_thread_args_t *arg = &args[i];
+
+        if (pthread_create(&thread_ids[i], NULL, process_job_thread, arg) != 0) {
+            fprintf(stderr, "Failed to create thread");
+            continue;
+        }
+    }
+
+    for (int i = 0; i < job_id; i++) {
+      pthread_join(thread_ids[i], NULL);
+    }
 
     fflush(stdout);
 
-    closedir(dir);
     kvs_terminate();
     return EXIT_SUCCESS;
 
