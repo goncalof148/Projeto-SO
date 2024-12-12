@@ -15,12 +15,15 @@
 #include "operations.h"
 
 #include <pthread.h>
+#include <semaphore.h>
 
 pthread_rwlock_t rwlock;
 
+// static unsigned int concurrent_threads = 0;
+static sem_t threads_mutex;
+
 typedef struct {
-    char file_path[PATH_MAX];
-    char file_path_output[PATH_MAX];
+    char file_path_base[PATH_MAX];
     int result;  
 } job_thread_args_t;
 
@@ -29,7 +32,15 @@ int has_job_extension(const char *filename) {
     return (dot && strcmp(dot, ".job") == 0);
 }
 
-int process_job(const char *input_file_path, const char *output_file_path) {
+int process_job(const char *base_file_path) {
+    char input_file_path[PATH_MAX];
+    strncpy(input_file_path, base_file_path, sizeof(input_file_path) - 1);
+    strncat(input_file_path, ".job", sizeof(input_file_path) - strlen(input_file_path) - 1);
+
+    char output_file_path[PATH_MAX];
+    strncpy(output_file_path, base_file_path, sizeof(output_file_path) - 1);
+    strncat(output_file_path, ".out", sizeof(output_file_path) - strlen(output_file_path) - 1);
+
     int fd_input = open(input_file_path, O_RDONLY);
     if (fd_input == -1) {
         fprintf(stderr, "Error opening input .job file '%s': %s\n", input_file_path, strerror(errno));
@@ -176,7 +187,7 @@ int process_job(const char *input_file_path, const char *output_file_path) {
                     return EXIT_FAILURE;
                 }
 
-                if (kvs_backup()) {
+                if (kvs_backup(base_file_path)) {
                     fprintf(stderr, "Failed to perform backup.\n");
                 }
 
@@ -222,22 +233,28 @@ int process_job(const char *input_file_path, const char *output_file_path) {
 void *process_job_thread(void *arg) {
     job_thread_args_t *targ = (job_thread_args_t *) arg;
     
-    targ->result = process_job(targ->file_path, targ->file_path_output);
+    targ->result = process_job(targ->file_path_base);
+    sem_post(&threads_mutex);
     return &targ->result;
 }
 
 int main(int argc, char *argv[]) {
-    int ret = EXIT_FAILURE; 
+    int ret = EXIT_FAILURE;
     char *dir_path = NULL;
     pthread_t *thread_ids = NULL;
     job_thread_args_t *args = NULL;
-    size_t max_threads = 0;
-    size_t job_id = 0;
+    unsigned int max_threads = 0;
+    unsigned int job_count = 0;
     DIR *dir = NULL;
     struct dirent *entry = NULL;
 
     if (argc < 3) {
         fprintf(stderr, "Usage: %s <directory_path> <backups_number>\n", argv[0]);
+        return EXIT_FAILURE;
+    }
+
+    if (kvs_init()) {
+        fprintf(stderr, "Failed to initialize KVS\n");
         return EXIT_FAILURE;
     }
 
@@ -251,6 +268,15 @@ int main(int argc, char *argv[]) {
     dir_path[PATH_MAX - 1] = '\0';
 
     int backups_number = atoi(argv[2]);
+    unsigned long max_threads_l = strtoul(argv[2], NULL, 10);
+
+    if (max_threads_l > UINT_MAX) {
+        fprintf(stderr, "Error: Max threads too big");
+        return EXIT_FAILURE;
+    }
+
+    max_threads = (unsigned int) max_threads_l;
+
     printf("Number of backups: %d\n", backups_number);
     fflush(stdout);
 
@@ -259,15 +285,10 @@ int main(int argc, char *argv[]) {
         goto cleanup;
     }
 
-    if (kvs_init()) {
-        fprintf(stderr, "Failed to initialize KVS\n");
-        goto cleanup_rwlock;
-    }
-
     dir = opendir(dir_path);
     if (dir == NULL) {
         perror("Error opening directory");
-        goto cleanup_kvs;
+        goto cleanup;
     }
 
     while ((entry = readdir(dir)) != NULL) {
@@ -279,31 +300,29 @@ int main(int argc, char *argv[]) {
             continue; 
         }
 
-        job_id++;
+        job_count++;
     }
 
-    max_threads = job_id;
-
-    if (max_threads == 0) {
+    if (job_count == 0) {
         printf("No job files found in the directory.\n");
         ret = EXIT_SUCCESS;
-        goto cleanup_dir;
+        goto cleanup;
     }
 
-    thread_ids = malloc(sizeof(pthread_t) * max_threads);
+    thread_ids = malloc(sizeof(pthread_t) * job_count);
     if (thread_ids == NULL) {
         fprintf(stderr, "Failed to allocate memory for thread IDs.\n");
-        goto cleanup_dir;
+        goto cleanup;
     }
 
-    args = malloc(sizeof(job_thread_args_t) * max_threads);
+    args = malloc(sizeof(job_thread_args_t) * job_count);
     if (args == NULL) {
         fprintf(stderr, "Failed to allocate memory for thread arguments.\n");
-        goto cleanup_thread_ids;
+        goto cleanup;
     }
-
+    
     rewinddir(dir);
-    job_id = 0;
+    int job_id = 0;
 
     while ((entry = readdir(dir)) != NULL) {
         if (entry->d_type != DT_REG && entry->d_type != DT_UNKNOWN) {
@@ -328,64 +347,51 @@ int main(int argc, char *argv[]) {
             continue; 
         }
 
-        char output_file_path[PATH_MAX];
-        strncpy(output_file_path, input_file_path, sizeof(output_file_path) - 1);
-        output_file_path[sizeof(output_file_path) - 1] = '\0'; 
+        char base_file_path[PATH_MAX];
+        strncpy(base_file_path, input_file_path, sizeof(base_file_path) - 1);
+        base_file_path[sizeof(base_file_path) - 1] = '\0'; 
 
-        char *dot_position = strstr(output_file_path, ".job");
+        char *dot_position = strstr(base_file_path, ".job");
         if (dot_position != NULL) {
             *dot_position = '\0';
         }
-        strncat(output_file_path, ".output", sizeof(output_file_path) - strlen(output_file_path) - 1);
 
-        
         job_thread_args_t *arg = &args[job_id];
-        strncpy(arg->file_path, input_file_path, sizeof(arg->file_path) - 1);
-        arg->file_path[sizeof(arg->file_path) - 1] = '\0'; 
-        strncpy(arg->file_path_output, output_file_path, sizeof(arg->file_path_output) - 1);
-        arg->file_path_output[sizeof(arg->file_path_output) - 1] = '\0'; 
+        strncpy(arg->file_path_base, base_file_path, sizeof(arg->file_path_base) - 1);
+        arg->file_path_base[sizeof(arg->file_path_base) - 1] = '\0';
         arg->result = 0;
 
         job_id++;
     }
 
-    closedir(dir);
-    dir = NULL;
+    if (sem_init(&threads_mutex, 0, max_threads) != 0) {
+        goto cleanup;
+    }
 
-    for (size_t i = 0; i < max_threads; i++) {
+    for (size_t i = 0; i < job_count; i++) {
         job_thread_args_t *arg = &args[i];
+        
+        // TODO: add limit to concurrent threads
+        sem_wait(&threads_mutex);
+
         if (pthread_create(&thread_ids[i], NULL, process_job_thread, arg) != 0) {
-            fprintf(stderr, "Failed to create thread for job %s\n", arg->file_path);
+            fprintf(stderr, "Failed to create thread for job %s\n", arg->file_path_base);
         }
     }
 
-    for (size_t i = 0; i < max_threads; i++) {
+    for (size_t i = 0; i < job_count; i++) {
         pthread_join(thread_ids[i], NULL);
     }
 
     ret = EXIT_SUCCESS;
 
-    goto cleanup_thread_ids;
-
-cleanup_thread_ids:
-    free(thread_ids);
-
-cleanup_dir:
-    if (dir != NULL) {
-        closedir(dir);
-    }
-
-cleanup_kvs:
-    kvs_terminate();
-
-cleanup_rwlock:
-    pthread_rwlock_destroy(&rwlock);
-
 cleanup:
-    free(dir_path);
-    if (args != NULL) {
-        free(args);
-    }
+    if (thread_ids) free(thread_ids);
+    if (args) free(args);
+    if (dir) closedir(dir);
+    if (dir_path) free(dir_path);
+    pthread_rwlock_destroy(&rwlock);
+    kvs_terminate();
 
     return ret;
 }

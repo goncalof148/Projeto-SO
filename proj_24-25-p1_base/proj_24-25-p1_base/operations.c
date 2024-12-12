@@ -110,7 +110,8 @@ void kvs_show(int fd) {
   }
 }
 
-int kvs_backup() {
+int kvs_backup(const char *base_file_path) {
+    // TODO: mutex for running_backups
     if (running_backups >= running_backups_limit) {
         wait(NULL);
         running_backups--;
@@ -127,21 +128,24 @@ int kvs_backup() {
     if (pid > 0) {
         running_backups++;
     } else {
-    
-        setenv("LSAN_OPTIONS", "detect_leaks=0", 1);
-        char filename[128];
+        char filename[PATH_MAX];
+        // strncpy(filename, base_file_path, sizeof(filename) - 1);
+        // snprintf(filename, sizeof(filename), "file-%d.bck", job_backup_number);
+        // strncat(filename, ".job", sizeof(filename) - strlen(filename) - 1);
+
+        // TODO: name after jobs
         snprintf(filename, sizeof(filename), "file-%d.bck", job_backup_number);
 
         int fd = open(filename, O_CREAT | O_TRUNC | O_WRONLY, S_IRUSR | S_IWUSR);
         if (fd < 0) {
             fprintf(stderr, "Failed to open backup file '%s': %s\n", filename, strerror(errno));
-            exit(EXIT_FAILURE);
+            _exit(EXIT_FAILURE);
         }
 
         kvs_show(fd);
 
         close(fd);  
-        exit(EXIT_SUCCESS);
+        _exit(EXIT_SUCCESS);
     }
 
     return 0;
