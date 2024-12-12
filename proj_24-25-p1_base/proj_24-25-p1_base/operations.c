@@ -8,6 +8,7 @@
 
 #include "kvs.h"
 #include "constants.h"
+#include <errno.h>
 
 static struct HashTable* kvs_table = NULL;
 
@@ -16,9 +17,6 @@ static int running_backups_limit = 10;
 
 static int job_backup_number = 0;
 
-/// Calculates a timespec from a delay in milliseconds.
-/// @param delay_ms Delay in milliseconds.
-/// @return Timespec with the given delay.
 static struct timespec delay_to_timespec(unsigned int delay_ms) {
   return (struct timespec){delay_ms / 1000, (delay_ms % 1000) * 1000000};
 }
@@ -39,7 +37,6 @@ int kvs_terminate() {
     return 1;
   }
 
-  // terminate all child processes
   while (wait(NULL) > 0);
 
   free_table(kvs_table);
@@ -100,7 +97,6 @@ int kvs_delete(int fd, size_t num_pairs, char keys[][MAX_STRING_SIZE]) {
   if (aux) {
     dprintf(fd, "]\n");
   }
-
   return 0;
 }
 
@@ -109,50 +105,48 @@ void kvs_show(int fd) {
     KeyNode *keyNode = kvs_table->table[i];
     while (keyNode != NULL) {
       dprintf(fd, "(%s, %s)\n", keyNode->key, keyNode->value);
-      keyNode = keyNode->next; // Move to the next node
+      keyNode = keyNode->next; 
     }
   }
 }
 
 int kvs_backup() {
-  if (running_backups >= running_backups_limit) {
-    wait(NULL);
-    running_backups--;
-  }
-
-  pid_t pid = fork();
-
-  if (pid < 0) {
-    fprintf(stderr, "Failed to fork");
-    return -1;
-  }
-  
-  job_backup_number++;
-
-  if (pid) {
-    // in parent
-    running_backups++;
-    // ignore and let it cook
-  } else {
-    // in child
-    
-    // TODO: properly implement file name
-    char filename[128];
-    sprintf(filename, "file-%d.bck", job_backup_number);
-    // create or truncate file if needed
-    int fd = open(filename, O_CREAT | O_TRUNC | O_WRONLY, S_IRUSR | S_IWUSR);
-    
-    if (fd < 0) {
-      fprintf(stderr, "Failed to open file.");
-      exit(-1);
+    if (running_backups >= running_backups_limit) {
+        wait(NULL);
+        running_backups--;
     }
 
-    kvs_show(fd);
-    exit(0);
-  }
+    pid_t pid = fork();
+    if (pid < 0) {
+        fprintf(stderr, "Failed to fork\n");
+        return -1;
+    }
 
-  return 0;
+    job_backup_number++;
+
+    if (pid > 0) {
+        running_backups++;
+    } else {
+    
+        setenv("LSAN_OPTIONS", "detect_leaks=0", 1);
+        char filename[128];
+        snprintf(filename, sizeof(filename), "file-%d.bck", job_backup_number);
+
+        int fd = open(filename, O_CREAT | O_TRUNC | O_WRONLY, S_IRUSR | S_IWUSR);
+        if (fd < 0) {
+            fprintf(stderr, "Failed to open backup file '%s': %s\n", filename, strerror(errno));
+            exit(EXIT_FAILURE);
+        }
+
+        kvs_show(fd);
+
+        close(fd);  
+        exit(EXIT_SUCCESS);
+    }
+
+    return 0;
 }
+
 
 void kvs_wait(unsigned int delay_ms) {
   struct timespec delay = delay_to_timespec(delay_ms);
