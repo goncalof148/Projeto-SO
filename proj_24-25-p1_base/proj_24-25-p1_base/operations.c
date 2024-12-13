@@ -9,6 +9,7 @@
 #include "kvs.h"
 #include "constants.h"
 #include <errno.h>
+#include <limits.h>
 
 static struct HashTable* kvs_table = NULL;
 
@@ -134,7 +135,7 @@ int kvs_backup(const char *base_file_path) {
         // strncat(filename, ".job", sizeof(filename) - strlen(filename) - 1);
 
         // TODO: name after jobs
-        snprintf(filename, sizeof(filename), "file-%d.bck", job_backup_number);
+        snprintf(filename, sizeof(filename), "%s-%d.bck", base_file_path, job_backup_number);
 
         int fd = open(filename, O_CREAT | O_TRUNC | O_WRONLY, S_IRUSR | S_IWUSR);
         if (fd < 0) {
