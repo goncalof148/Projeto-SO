@@ -1,8 +1,10 @@
 #include "kvs.h"
 #include "string.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>
+#include "constants.h"
 
 // Hash function based on key initial.
 // @param key Lowercase alphabetical string.
@@ -18,6 +20,11 @@ int hash(const char *key) {
     return -1; // Invalid index for non-alphabetic or number strings
 }
 
+int compare_strings(const void *a, const void *b) {
+    const char *strA = (const char *)a;
+    const char *strB = (const char *)b;
+    return strcmp(strA, strB);
+}
 
 struct HashTable* create_hash_table() {
   HashTable *ht = malloc(sizeof(HashTable));
@@ -25,6 +32,7 @@ struct HashTable* create_hash_table() {
   for (int i = 0; i < TABLE_SIZE; i++) {
       ht->table[i] = NULL;
   }
+  pthread_mutex_init(&ht->global_lock, NULL);
   return ht;
 }
 
@@ -47,8 +55,70 @@ int write_pair(HashTable *ht, const char *key, const char *value) {
     keyNode->key = strdup(key); // Allocate memory for the key
     keyNode->value = strdup(value); // Allocate memory for the value
     keyNode->next = ht->table[index]; // Link to existing nodes
+    pthread_rwlock_init(&keyNode->lock, NULL);
+    pthread_rwlock_wrlock(&keyNode->lock);
+    
     ht->table[index] = keyNode; // Place new key node at the start of the list
     return 0;
+}
+
+void keys_wrlock(HashTable *ht, size_t num_pairs, char keys[][MAX_STRING_SIZE]) {
+    int exists[TABLE_SIZE];
+
+    char sorted_keys[MAX_WRITE_SIZE][MAX_STRING_SIZE];
+
+    memcpy(sorted_keys, keys, sizeof(char) * MAX_STRING_SIZE * MAX_WRITE_SIZE);
+
+    qsort(sorted_keys, num_pairs, MAX_STRING_SIZE, compare_strings);
+
+    for (size_t i = 0; i < num_pairs; i++) {
+        int key_hash = hash(sorted_keys[i]);
+        if (exists[key_hash]) continue;
+
+        KeyNode *key_node = ht->table[key_hash];
+        if (key_node) pthread_rwlock_wrlock(&key_node->lock);
+        exists[key_hash] = 1;
+    }
+}
+
+void keys_rdlock(HashTable *ht, size_t num_pairs, char keys[][MAX_STRING_SIZE]) {
+  int exists[TABLE_SIZE];
+
+  for (size_t i = 0; i < num_pairs; i++) {
+    int key_hash = hash(keys[i]);
+    if (exists[key_hash]) continue;
+
+    KeyNode *key_node = ht->table[key_hash];
+    if (key_node) pthread_rwlock_rdlock(&key_node->lock);
+    exists[key_hash] = 1;
+  }
+}
+
+void keys_rdlock_global(HashTable *ht) {
+  for (size_t i = 0; i < TABLE_SIZE; i++) {
+    KeyNode *key_node = ht->table[i];
+    if (key_node) pthread_rwlock_rdlock(&key_node->lock);
+  }
+}
+
+void keys_unlock_global(HashTable *ht) {
+  for (size_t i = 0; i < TABLE_SIZE; i++) {
+    KeyNode *key_node = ht->table[i];
+    if (key_node) pthread_rwlock_unlock(&key_node->lock);
+  }
+}
+
+void keys_unlock(HashTable *ht, size_t num_pairs, char keys[][MAX_STRING_SIZE]) {
+  int exists[TABLE_SIZE];
+
+  for (size_t i = 0; i < num_pairs; i++) {
+    int key_hash = hash(keys[i]);
+    if (exists[key_hash]) continue;
+
+    KeyNode *key_node = ht->table[key_hash];
+    if (key_node) pthread_rwlock_unlock(&key_node->lock);
+    exists[key_hash] = 1;
+  }
 }
 
 char* read_pair(HashTable *ht, const char *key) {
@@ -106,5 +176,6 @@ void free_table(HashTable *ht) {
             free(temp);
         }
     }
+    pthread_mutex_destroy(&ht->global_lock);
     free(ht);
 }
