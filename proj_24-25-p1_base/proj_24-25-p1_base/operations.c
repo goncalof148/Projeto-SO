@@ -59,25 +59,37 @@ int kvs_write(size_t num_pairs, char keys[][MAX_STRING_SIZE], char values[][MAX_
   return 0;
 }
 
-int kvs_read(int fd, size_t num_pairs, char keys[][MAX_STRING_SIZE]) {
-  if (kvs_table == NULL) {
-    fprintf(stderr, "KVS state must be initialized\n");
-    return 1;
-  }
-
-  dprintf(fd, "[");
-  for (size_t i = 0; i < num_pairs; i++) {
-    char* result = read_pair(kvs_table, keys[i]);
-    if (result == NULL) {
-      dprintf(fd, "(%s,KVSERROR)", keys[i]);
-    } else {
-      dprintf(fd, "(%s,%s)", keys[i], result);
-    }
-    free(result);
-  }
-  dprintf(fd, "]\n");
-  return 0;
+// Comparison function for qsort
+static int compare_strings(const void *a, const void *b) {
+    const char *strA = (const char *)a;
+    const char *strB = (const char *)b;
+    return strcmp(strA, strB);
 }
+
+int kvs_read(int fd, size_t num_pairs, char keys[][MAX_STRING_SIZE]) {
+    if (kvs_table == NULL) {
+        fprintf(stderr, "KVS state must be initialized\n");
+        return 1;
+    }
+
+    // Sort the keys array in ascending lexicographical order
+    qsort(keys, num_pairs, MAX_STRING_SIZE, compare_strings);
+
+    dprintf(fd, "[");
+    for (size_t i = 0; i < num_pairs; i++) {
+        char *result = read_pair(kvs_table, keys[i]);
+        if (result == NULL) {
+            dprintf(fd, "(%s,KVSERROR)", keys[i]);
+        } else {
+            dprintf(fd, "(%s,%s)", keys[i], result);
+        }
+        free(result);
+    }
+    dprintf(fd, "]\n");
+
+    return 0;
+}
+
 
 int kvs_delete(int fd, size_t num_pairs, char keys[][MAX_STRING_SIZE]) {
   if (kvs_table == NULL) {
