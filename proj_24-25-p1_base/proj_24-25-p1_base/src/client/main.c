@@ -30,6 +30,7 @@ int main(int argc, char *argv[]) {
   strncat(notif_pipe_path, argv[1], strlen(argv[1]) * sizeof(char));
 
   // TODO open pipes
+  kvs_connect(req_pipe_path, resp_pipe_path, notif_pipe_path, argv[2]);
 
   while (1) {
     switch (get_next(STDIN_FILENO)) {

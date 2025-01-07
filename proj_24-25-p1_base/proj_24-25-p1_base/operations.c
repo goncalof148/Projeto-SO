@@ -15,6 +15,7 @@ static struct HashTable* kvs_table = NULL;
 
 static int running_backups = 0;
 static int running_backups_limit = 10;
+static pthread_mutex_t running_backups_lock;
 
 static int job_backup_number = 0;
 
@@ -29,6 +30,7 @@ int kvs_init() {
   }
 
   kvs_table = create_hash_table();
+  pthread_mutex_init(&running_backups_lock, NULL);
   return kvs_table == NULL;
 }
 
@@ -50,20 +52,17 @@ int kvs_write(size_t num_pairs, char keys[][MAX_STRING_SIZE], char values[][MAX_
     return 1;
   }
 
+  keys_wrlock(kvs_table, num_pairs, keys);
+
   for (size_t i = 0; i < num_pairs; i++) {
     if (write_pair(kvs_table, keys[i], values[i]) != 0) {
       fprintf(stderr, "Failed to write keypair (%s,%s)\n", keys[i], values[i]);
     }
   }
 
-  return 0;
-}
+  keys_unlock(kvs_table, num_pairs, keys);
 
-// Comparison function for qsort
-static int compare_strings(const void *a, const void *b) {
-    const char *strA = (const char *)a;
-    const char *strB = (const char *)b;
-    return strcmp(strA, strB);
+  return 0;
 }
 
 int kvs_read(int fd, size_t num_pairs, char keys[][MAX_STRING_SIZE]) {
@@ -74,6 +73,8 @@ int kvs_read(int fd, size_t num_pairs, char keys[][MAX_STRING_SIZE]) {
 
     // Sort the keys array in ascending lexicographical order
     qsort(keys, num_pairs, MAX_STRING_SIZE, compare_strings);
+
+    keys_wrlock(kvs_table, num_pairs, keys);
 
     dprintf(fd, "[");
     for (size_t i = 0; i < num_pairs; i++) {
@@ -87,6 +88,8 @@ int kvs_read(int fd, size_t num_pairs, char keys[][MAX_STRING_SIZE]) {
     }
     dprintf(fd, "]\n");
 
+    keys_unlock(kvs_table, num_pairs, keys);
+
     return 0;
 }
 
@@ -98,6 +101,8 @@ int kvs_delete(int fd, size_t num_pairs, char keys[][MAX_STRING_SIZE]) {
   }
   int aux = 0;
 
+  keys_wrlock(kvs_table, num_pairs, keys);
+
   for (size_t i = 0; i < num_pairs; i++) {
     if (delete_pair(kvs_table, keys[i]) != 0) {
       if (!aux) {
@@ -107,6 +112,9 @@ int kvs_delete(int fd, size_t num_pairs, char keys[][MAX_STRING_SIZE]) {
       dprintf(fd, "(%s,KVSMISSING)", keys[i]);
     }
   }
+
+  keys_unlock(kvs_table, num_pairs, keys);
+
   if (aux) {
     dprintf(fd, "]\n");
   }
@@ -114,6 +122,7 @@ int kvs_delete(int fd, size_t num_pairs, char keys[][MAX_STRING_SIZE]) {
 }
 
 void kvs_show(int fd) {
+  keys_rdlock_global(kvs_table);
   for (int i = 0; i < TABLE_SIZE; i++) {
     KeyNode *keyNode = kvs_table->table[i];
     while (keyNode != NULL) {
@@ -121,10 +130,16 @@ void kvs_show(int fd) {
       keyNode = keyNode->next; 
     }
   }
+  keys_unlock_global(kvs_table);
 }
 
 int kvs_backup(const char *base_file_path) {
-    // TODO: mutex for running_backups
+  // 2
+  // A...............
+  //     B.......|
+  //        C|   |...
+  //             D
+    pthread_mutex_lock(&running_backups_lock);
     if (running_backups >= running_backups_limit) {
         wait(NULL);
         running_backups--;
@@ -133,6 +148,7 @@ int kvs_backup(const char *base_file_path) {
     pid_t pid = fork();
     if (pid < 0) {
         fprintf(stderr, "Failed to fork\n");
+        pthread_mutex_unlock(&running_backups_lock);
         return -1;
     }
 
@@ -140,13 +156,10 @@ int kvs_backup(const char *base_file_path) {
 
     if (pid > 0) {
         running_backups++;
+        pthread_mutex_unlock(&running_backups_lock);
     } else {
         char filename[PATH_MAX];
-        // strncpy(filename, base_file_path, sizeof(filename) - 1);
-        // snprintf(filename, sizeof(filename), "file-%d.bck", job_backup_number);
-        // strncat(filename, ".job", sizeof(filename) - strlen(filename) - 1);
-
-        // TODO: name after jobs
+        
         snprintf(filename, sizeof(filename), "%s-%d.bck", base_file_path, job_backup_number);
 
         int fd = open(filename, O_CREAT | O_TRUNC | O_WRONLY, S_IRUSR | S_IWUSR);

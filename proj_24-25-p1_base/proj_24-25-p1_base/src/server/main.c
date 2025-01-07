@@ -7,6 +7,9 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <sys/stat.h>
+
+
 
 #include "constants.h"
 #include "io.h"
@@ -275,7 +278,12 @@ static void dispatch_threads(DIR *dir) {
   free(threads);
 }
 
+
 int main(int argc, char **argv) {
+  int fserv;
+  ssize_t n; 
+  char buf[TAMMSG];
+  
   if (argc < 4) {
     write_str(STDERR_FILENO, "Usage: ");
     write_str(STDERR_FILENO, argv[0]);
@@ -283,6 +291,25 @@ int main(int argc, char **argv) {
     write_str(STDERR_FILENO, " <max_threads>");
     write_str(STDERR_FILENO, " <max_backups> \n");
     return 1;
+  }
+  unlink(argv[4]);
+  if (mkfifo(argv[4], 0777) < 0){
+    perror("Error creating named pipe");
+    exit (1);
+  }
+
+  printf("Server listening on pipe: %s\n", argv[4]);
+
+  if ((fserv = open(argv[4], O_RDONLY | O_NONBLOCK)) < 0){
+    perror("Error opening the named pipe");
+	  exit(1);
+  }
+
+  printf("Server listening...\n");
+
+  while ((n = read(fserv, buf, TAMMSG)) > 0) {
+        buf[n] = '\0'; // Null-terminate the received string
+        printf("Received request: %s\n", buf);
   }
 
   jobs_directory = argv[1];
@@ -296,7 +323,7 @@ int main(int argc, char **argv) {
   }
 
   max_threads = strtoul(argv[2], &endptr, 10);
-
+  
   if (*endptr != '\0') {
     fprintf(stderr, "Invalid max_threads value\n");
     return 1;
@@ -334,7 +361,9 @@ int main(int argc, char **argv) {
     wait(NULL);
     active_backups--;
   }
-
+  
+  close(fserv);
+  unlink(argv[4]);
   kvs_terminate();
 
   return 0;
