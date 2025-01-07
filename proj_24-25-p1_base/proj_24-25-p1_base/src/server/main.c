@@ -301,7 +301,6 @@ int main(int argc, char **argv) {
   printf("Pipe created: %s\n", argv[4]);
 
   if ((fserv = open(argv[4], O_RDWR)) < 0) {
-
     perror("Error opening the named pipe");
 	  exit(1);
   }

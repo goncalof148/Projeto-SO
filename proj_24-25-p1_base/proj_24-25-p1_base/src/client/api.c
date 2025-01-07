@@ -13,10 +13,9 @@ int kvs_connect(char const *req_pipe_path, char const *resp_pipe_path,
                 char const *server_pipe_path, char const *notif_pipe_path,
                 int *notif_pipe) {
 
-
     int req_pipe, resp_pipe, fserv;
     char buf[40];
-    
+
     if ((fserv = open(server_pipe_path, O_RDWR)) < 0) {
         perror("Error opening server pipe");
         return -1;
@@ -107,12 +106,14 @@ int kvs_disconnect(void) {
 }
 
 int kvs_subscribe(const char *key) {
+    printf("%s", key);
   // send subscribe message to request pipe and wait for response in response
   // pipe
   return 0;
 }
 
 int kvs_unsubscribe(const char *key) {
+    printf("%s", key);
   // send unsubscribe message to request pipe and wait for response in response
   // pipe
   return 0;
