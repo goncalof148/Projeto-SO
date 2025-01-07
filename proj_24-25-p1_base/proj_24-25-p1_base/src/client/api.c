@@ -16,7 +16,7 @@ int kvs_connect(char const *req_pipe_path, char const *resp_pipe_path,
 
     int req_pipe, resp_pipe, fserv;
     char buf[40];
-
+    
     if ((fserv = open(server_pipe_path, O_RDWR)) < 0) {
         perror("Error opening server pipe");
         return -1;

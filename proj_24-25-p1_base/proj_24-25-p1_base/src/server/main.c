@@ -297,10 +297,10 @@ int main(int argc, char **argv) {
     perror("Error creating named pipe");
     exit (1);
   }
-
+  
   printf("Pipe created: %s\n", argv[4]);
 
-  if ((fserv = open(argv[4], O_RDONLY)) < 0) {
+  if ((fserv = open(argv[4], O_RDWR)) < 0) {
 
     perror("Error opening the named pipe");
 	  exit(1);
