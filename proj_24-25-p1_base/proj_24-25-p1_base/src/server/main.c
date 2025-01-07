@@ -300,16 +300,15 @@ int main(int argc, char **argv) {
 
   printf("Server listening on pipe: %s\n", argv[4]);
 
-  if ((fserv = open(argv[4], O_RDONLY | O_NONBLOCK)) < 0){
+  if ((fserv = open(argv[4], O_RDONLY)) < 0) {
+
     perror("Error opening the named pipe");
 	  exit(1);
   }
 
-  printf("Server listening...\n");
-
   while ((n = read(fserv, buf, TAMMSG)) > 0) {
-        buf[n] = '\0'; // Null-terminate the received string
-        printf("Received request: %s\n", buf);
+    buf[n] = '\0'; 
+    printf("Received request: %s\n", buf);
   }
 
   jobs_directory = argv[1];
@@ -363,6 +362,7 @@ int main(int argc, char **argv) {
   }
   
   close(fserv);
+  printf("Closing pipe: %s\n", argv[4]);
   unlink(argv[4]);
   kvs_terminate();
 
