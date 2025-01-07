@@ -4,11 +4,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/stat.h>
 
 #include "parser.h"
-#include "src/client/api.h"
-#include "src/common/constants.h"
-#include "src/common/io.h"
+#include "api.h"
+#include "../common/constants.h"
+#include "../common/io.h"
 
 int main(int argc, char *argv[]) {
   if (argc < 3) {
@@ -29,8 +30,21 @@ int main(int argc, char *argv[]) {
   strncat(resp_pipe_path, argv[1], strlen(argv[1]) * sizeof(char));
   strncat(notif_pipe_path, argv[1], strlen(argv[1]) * sizeof(char));
 
+  unlink(notif_pipe_path);
+  if (mkfifo(notif_pipe_path, O_RDONLY) < 0){
+    exit (1);
+  }
+
+  int notif_pipe_fd = open(notif_pipe_path, O_RDONLY);
+
+  if(notif_pipe_fd == 0){
+    exit(1);
+  }
+
+  printf("Notification pipe connected\n");
+
   // TODO open pipes
-  kvs_connect(req_pipe_path, resp_pipe_path, notif_pipe_path, argv[2]);
+  kvs_connect(req_pipe_path, resp_pipe_path, notif_pipe_path, argv[2], &notif_pipe_fd);
 
   while (1) {
     switch (get_next(STDIN_FILENO)) {

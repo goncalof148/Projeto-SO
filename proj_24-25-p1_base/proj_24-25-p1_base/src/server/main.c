@@ -8,8 +8,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include <sys/stat.h>
-
-
+#include <errno.h>
 
 #include "constants.h"
 #include "io.h"
@@ -292,13 +291,14 @@ int main(int argc, char **argv) {
     write_str(STDERR_FILENO, " <max_backups> \n");
     return 1;
   }
+
   unlink(argv[4]);
-  if (mkfifo(argv[4], 0777) < 0){
+  if (mkfifo(argv[4], 0666) < 0){
     perror("Error creating named pipe");
     exit (1);
   }
 
-  printf("Server listening on pipe: %s\n", argv[4]);
+  printf("Pipe created: %s\n", argv[4]);
 
   if ((fserv = open(argv[4], O_RDONLY)) < 0) {
 
@@ -306,9 +306,13 @@ int main(int argc, char **argv) {
 	  exit(1);
   }
 
-  while ((n = read(fserv, buf, TAMMSG)) > 0) {
-    buf[n] = '\0'; 
-    printf("Received request: %s\n", buf);
+  printf("Server listening on pipe: %s\n", argv[4]);
+
+  for (;;) {
+    n = read (fserv, buf, TAMMSG); 
+    if (n <= 0) break;
+    printf("%s\n", buf);
+    
   }
 
   jobs_directory = argv[1];

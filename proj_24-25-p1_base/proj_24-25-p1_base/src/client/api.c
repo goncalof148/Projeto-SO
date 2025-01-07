@@ -1,31 +1,104 @@
 #include "api.h"
-#include "src/common/constants.h"
-#include "src/common/protocol.h"
+#include "../common/constants.h"
+#include "../common/protocol.h"
+#include <fcntl.h>
+#include <stdlib.h>   
+#include <unistd.h>  
+#include <sys/stat.h>
+#include <string.h>  
+#include <stdio.h>
+#include <errno.h>
 
 int kvs_connect(char const *req_pipe_path, char const *resp_pipe_path,
                 char const *server_pipe_path, char const *notif_pipe_path,
                 int *notif_pipe) {
 
-  // create pipes and connect
-  if (mkfifo(req_pipe_path, O_WRONLY) < 0)
-    exit (1);
-  if (mkfifo(resp_pipe_path,  O_RDONLY) < 0)
-    exit (1);
-  if (mkfifo(notif_pipe_path, O_RDONLY) < 0)
-    exit (1);
-  int req_pipe = open(req_pipe_path, O_WRONLY);
-  int resp_pipe = open(resp_pipe_path, O_RDONLY);
-  int notif_pipe_fd = open(notif_pipe_path, O_RDONLY);
-  if(req_pipe < 0 || resp_pipe == 0 || notif_pipe_fd == 0){
-    exit(1);
-  }
 
-  int fserv = open(server_pipe_path, O_WRONLY);
-  if(fserv < 0)
-    exit(1);
+    int req_pipe, resp_pipe, fserv;
+    char buf[40];
+
+    if ((fserv = open(server_pipe_path, O_RDWR)) < 0) {
+        perror("Error opening server pipe");
+        return -1;
+    }
     
-  write(server_fd, "aaa", strlen("aaa") + 1);
-  return 0;
+    strcpy(buf, "OP_CODE=1");
+
+    if (write(fserv, buf, strlen(buf) + 1) < 0) {
+        perror("Error writing to server pipe");
+        return -1;
+    }
+
+    unlink(req_pipe_path);
+    unlink(resp_pipe_path);
+
+    if (mkfifo(req_pipe_path, 0666) < 0) {
+        perror("Error creating request pipe");
+        exit(1);
+    } else {
+        printf("Request pipe '%s' created successfully\n", req_pipe_path);
+    }
+
+
+    if (mkfifo(resp_pipe_path, 0666) < 0) {
+      perror("Error creating response pipe");
+      exit(1);
+    }
+
+    printf("aquii\n");
+
+    // Open the request pipe (write-only)
+    if ((req_pipe = open(req_pipe_path, O_WRONLY | O_NONBLOCK)) < 0) {
+        printf("Failed to open request pipe '%s', errno: %d\n", req_pipe_path, errno);
+        perror("Error opening request pipe");
+        return -1;
+    }
+
+    printf("aquii2\n");
+    // Open the response pipe (read-only)
+    if ((resp_pipe = open(resp_pipe_path, O_RDONLY)) < 0) {
+        perror("Error opening response pipe");
+        close(req_pipe);
+        return -1;
+    }
+
+    // Open the server pipe (write-only)
+    if ((fserv = open(server_pipe_path, O_WRONLY)) < 0) {
+        perror("Error opening server pipe");
+        close(req_pipe);
+        close(resp_pipe);
+        return -1;
+    }
+
+    // Open the notification pipe (optional)
+    if (notif_pipe_path != NULL && notif_pipe != NULL) {
+        if ((*notif_pipe = open(notif_pipe_path, O_RDONLY | O_NONBLOCK)) < 0) {
+            perror("Error opening notification pipe");
+            close(req_pipe);
+            close(resp_pipe);
+            close(fserv);
+            return -1;
+        }
+    }
+
+    printf("Client connected to server: %s\n", server_pipe_path);
+
+    // Example communication: Send a message to the server
+    if (write(fserv, "aaa", strlen("aaa") + 1) < 0) {
+        perror("Error writing to server pipe");
+        close(req_pipe);
+        close(resp_pipe);
+        close(fserv);
+        if (notif_pipe) close(*notif_pipe);
+        return -1;
+    }
+
+    // Close server pipe after writing the message
+    close(fserv);
+    close(req_pipe);
+    close(resp_pipe);
+
+    return 0;
 }
 
 int kvs_disconnect(void) {
