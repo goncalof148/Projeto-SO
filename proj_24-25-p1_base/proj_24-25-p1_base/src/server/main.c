@@ -333,23 +333,29 @@ int main(int argc, char **argv) {
             notifications_pipe_path[len + 1] = '\0';
         }
     }
-    printf("REP %s\n", rep_pipe_path);
-    printf("RESP %s\n", resp_pipe_path);
-    printf("NOT %s\n", notifications_pipe_path);
+    //printf("REP %s\n", rep_pipe_path);
+    //printf("RESP %s\n", resp_pipe_path);
+    //printf("NOT %s\n", notifications_pipe_path);
 
     if ((frep = open(rep_pipe_path, O_RDONLY)) < 0) {
       perror("Error opening the named pipe");
       exit(1);
+    } else {
+      printf("REP pipe opened: %s\n", rep_pipe_path);
     }
 
     if ((fresp = open(resp_pipe_path, O_WRONLY)) < 0) {
       perror("Error opening the named pipe");
       exit(1);
+    } else{
+      printf("RESP pipe opened: %s\n", resp_pipe_path);
     }
 
     if ((fnot = open(notifications_pipe_path, O_WRONLY)) < 0) {
       perror("Error opening the named pipe");
       exit(1);
+    } else{
+      printf("NOT pipe opened: %s\n", notifications_pipe_path);
     }
 
   }

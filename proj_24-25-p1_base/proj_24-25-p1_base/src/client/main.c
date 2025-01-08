@@ -27,11 +27,11 @@ int main(int argc, char *argv[]) {
   size_t num;
 
   unlink(notif_pipe_path);
-  if (mkfifo(notif_pipe_path, O_RDONLY) < 0){
+  if (mkfifo(notif_pipe_path, 0666) < 0){
     exit (1);
   }
 
-  if ((notif_pipe_fd = open(resp_pipe_path, O_RDONLY)) < 0) {
+  if ((notif_pipe_fd = open(notif_pipe_path, O_RDONLY | O_NONBLOCK)) < 0) {
         perror("Error opening notification pipe");
         return -1;
     } 

@@ -9,6 +9,9 @@
 #include <stdio.h>
 #include <errno.h>
 
+#define FIELD_SIZE 40
+#define REQUEST_BUFFER_SIZE (1 + FIELD_SIZE * 3)
+
 int kvs_connect(char const *req_pipe_path, char const *resp_pipe_path,
                 char const *server_pipe_path, char const *notif_pipe_path,
                 int *notif_pipe) {
@@ -43,7 +46,7 @@ int kvs_connect(char const *req_pipe_path, char const *resp_pipe_path,
     // Copy OP_CODE to the buffer
     char op_code[20];
     sprintf(op_code, "%d", OP_CODE_CONNECT);
-
+    
     strcat(buffer, op_code);
     strcat(buffer, "|");
     strcat(buffer, req_pipe_path);
@@ -51,7 +54,7 @@ int kvs_connect(char const *req_pipe_path, char const *resp_pipe_path,
     strcat(buffer, resp_pipe_path);
     strcat(buffer, "|");
     strcat(buffer, notif_pipe_path);
-
+    
     if (write(fserv, buffer, sizeof(buffer)) < 0) {
         perror("Error writing to server pipe");
         return -1;
@@ -76,8 +79,7 @@ int kvs_connect(char const *req_pipe_path, char const *resp_pipe_path,
         printf("Response pipe '%s' opened successfully\n", resp_pipe_path);
     }
 
-    // Open the notification pipe (optional)
-    if (notif_pipe_path != NULL && notif_pipe != NULL) {
+    if (notif_pipe_path == NULL && notif_pipe == NULL) { //just to use var NEEDS CHANGE
         printf("NULL\n");
     }
 
