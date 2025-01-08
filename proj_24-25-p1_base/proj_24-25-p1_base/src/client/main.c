@@ -17,7 +17,7 @@ int main(int argc, char *argv[]) {
             argv[0]);
     return 1;
   }
-
+  int notif_pipe_fd;
   char req_pipe_path[256] = "/tmp/req";
   char resp_pipe_path[256] = "/tmp/resp";
   char notif_pipe_path[256] = "/tmp/notif";
@@ -26,16 +26,15 @@ int main(int argc, char *argv[]) {
   unsigned int delay_ms;
   size_t num;
 
-  strncat(req_pipe_path, argv[1], strlen(argv[1]) * sizeof(char));
-  strncat(resp_pipe_path, argv[1], strlen(argv[1]) * sizeof(char));
-  strncat(notif_pipe_path, argv[1], strlen(argv[1]) * sizeof(char));
-
   unlink(notif_pipe_path);
   if (mkfifo(notif_pipe_path, O_RDONLY) < 0){
     exit (1);
   }
 
-  int notif_pipe_fd = open(notif_pipe_path, O_RDONLY);
+  if ((notif_pipe_fd = open(resp_pipe_path, O_RDONLY)) < 0) {
+        perror("Error opening notification pipe");
+        return -1;
+    } 
 
   if(notif_pipe_fd == 0){
     exit(1);

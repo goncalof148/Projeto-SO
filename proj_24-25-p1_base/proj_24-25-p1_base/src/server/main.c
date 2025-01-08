@@ -279,9 +279,9 @@ static void dispatch_threads(DIR *dir) {
 
 
 int main(int argc, char **argv) {
-  int fserv;
+  int fserv, counter = 0, frep, fresp, fnot;
   ssize_t n; 
-  char buf[TAMMSG];
+  char buf[121], rep_pipe_path[41] = "", resp_pipe_path[41] = "", notifications_pipe_path[41] = "";
   
   if (argc < 4) {
     write_str(STDERR_FILENO, "Usage: ");
@@ -308,10 +308,50 @@ int main(int argc, char **argv) {
   printf("Server listening on pipe: %s\n", argv[4]);
 
   for (;;) {
-    n = read (fserv, buf, TAMMSG); 
+    n = read (fserv, buf, 121); 
     if (n <= 0) break;
     printf("%s\n", buf);
-    
+    for (size_t i = 2; i < strlen(buf); i++) { // Skip OP_CODE (assume first two chars)
+        if (buf[i] == '|') {
+            counter++;
+        } else if (buf[i] == '\0') {
+            break;
+        } else if (counter == 0) {
+            // Append to rep_pipe_path
+            size_t len = strlen(rep_pipe_path);
+            rep_pipe_path[len] = buf[i];
+            rep_pipe_path[len + 1] = '\0';
+        } else if (counter == 1) {
+            // Append to resp_pipe_path
+            size_t len = strlen(resp_pipe_path);
+            resp_pipe_path[len] = buf[i];
+            resp_pipe_path[len + 1] = '\0';
+        } else if (counter == 2) {
+            // Append to notifications_pipe_path
+            size_t len = strlen(notifications_pipe_path);
+            notifications_pipe_path[len] = buf[i];
+            notifications_pipe_path[len + 1] = '\0';
+        }
+    }
+    printf("REP %s\n", rep_pipe_path);
+    printf("RESP %s\n", resp_pipe_path);
+    printf("NOT %s\n", notifications_pipe_path);
+
+    if ((frep = open(rep_pipe_path, O_RDONLY)) < 0) {
+      perror("Error opening the named pipe");
+      exit(1);
+    }
+
+    if ((fresp = open(resp_pipe_path, O_WRONLY)) < 0) {
+      perror("Error opening the named pipe");
+      exit(1);
+    }
+
+    if ((fnot = open(notifications_pipe_path, O_WRONLY)) < 0) {
+      perror("Error opening the named pipe");
+      exit(1);
+    }
+
   }
 
   jobs_directory = argv[1];

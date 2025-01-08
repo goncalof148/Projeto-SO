@@ -14,19 +14,6 @@ int kvs_connect(char const *req_pipe_path, char const *resp_pipe_path,
                 int *notif_pipe) {
 
     int req_pipe, resp_pipe, fserv;
-    char buf[40];
-
-    if ((fserv = open(server_pipe_path, O_RDWR)) < 0) {
-        perror("Error opening server pipe");
-        return -1;
-    }
-    
-    strcpy(buf, "OP_CODE=1");
-
-    if (write(fserv, buf, strlen(buf) + 1) < 0) {
-        perror("Error writing to server pipe");
-        return -1;
-    }
 
     unlink(req_pipe_path);
     unlink(resp_pipe_path);
@@ -38,59 +25,62 @@ int kvs_connect(char const *req_pipe_path, char const *resp_pipe_path,
         printf("Request pipe '%s' created successfully\n", req_pipe_path);
     }
 
-
     if (mkfifo(resp_pipe_path, 0666) < 0) {
       perror("Error creating response pipe");
       exit(1);
+    } else {
+        printf("Response pipe '%s' created successfully\n", req_pipe_path);
     }
 
-    printf("aquii\n");
+    if ((fserv = open(server_pipe_path, O_RDWR)) < 0) {
+        perror("Error opening server pipe");
+        return -1;
+    }
+    
+    char buffer[121];
+    memset(buffer, 0, sizeof(buffer));  // Initialize the buffer
 
-    // Open the request pipe (write-only)
-    if ((req_pipe = open(req_pipe_path, O_WRONLY | O_NONBLOCK)) < 0) {
-        printf("Failed to open request pipe '%s', errno: %d\n", req_pipe_path, errno);
-        perror("Error opening request pipe");
+    // Copy OP_CODE to the buffer
+    char op_code[20];
+    sprintf(op_code, "%d", OP_CODE_CONNECT);
+
+    strcat(buffer, op_code);
+    strcat(buffer, "|");
+    strcat(buffer, req_pipe_path);
+    strcat(buffer, "|");
+    strcat(buffer, resp_pipe_path);
+    strcat(buffer, "|");
+    strcat(buffer, notif_pipe_path);
+
+    if (write(fserv, buffer, sizeof(buffer)) < 0) {
+        perror("Error writing to server pipe");
         return -1;
     }
 
-    printf("aquii2\n");
+    // Open the request pipe (write-only)
+    
+    if ((req_pipe = open(req_pipe_path, O_WRONLY )) < 0) {
+        perror("Error opening request pipe");
+        return -1;
+    } else {
+        printf("Request pipe '%s' opened successfully\n", req_pipe_path);
+    }
+
     // Open the response pipe (read-only)
     if ((resp_pipe = open(resp_pipe_path, O_RDONLY)) < 0) {
         perror("Error opening response pipe");
         close(req_pipe);
         return -1;
-    }
+    } else{
 
-    // Open the server pipe (write-only)
-    if ((fserv = open(server_pipe_path, O_WRONLY)) < 0) {
-        perror("Error opening server pipe");
-        close(req_pipe);
-        close(resp_pipe);
-        return -1;
+        printf("Response pipe '%s' opened successfully\n", resp_pipe_path);
     }
 
     // Open the notification pipe (optional)
     if (notif_pipe_path != NULL && notif_pipe != NULL) {
-        if ((*notif_pipe = open(notif_pipe_path, O_RDONLY | O_NONBLOCK)) < 0) {
-            perror("Error opening notification pipe");
-            close(req_pipe);
-            close(resp_pipe);
-            close(fserv);
-            return -1;
-        }
+        printf("NULL\n");
     }
 
-    printf("Client connected to server: %s\n", server_pipe_path);
-
-    // Example communication: Send a message to the server
-    if (write(fserv, "aaa", strlen("aaa") + 1) < 0) {
-        perror("Error writing to server pipe");
-        close(req_pipe);
-        close(resp_pipe);
-        close(fserv);
-        if (notif_pipe) close(*notif_pipe);
-        return -1;
-    }
 
     // Close server pipe after writing the message
     close(fserv);
