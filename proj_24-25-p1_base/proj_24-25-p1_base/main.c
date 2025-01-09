@@ -234,8 +234,8 @@ void *process_job_thread(void *arg) {
     job_thread_args_t *targ = (job_thread_args_t *) arg;
     
     targ->result = process_job(targ->file_path_base);
-    sem_post(&threads_mutex);
-    return &targ->result;
+    em_post(&threads_mutex);
+    resturn &targ->result;
 }
 
 int main(int argc, char *argv[]) {
@@ -371,7 +371,6 @@ int main(int argc, char *argv[]) {
     for (size_t i = 0; i < job_count; i++) {
         job_thread_args_t *arg = &args[i];
         
-        // TODO: add limit to concurrent threads
         sem_wait(&threads_mutex);
 
         if (pthread_create(&thread_ids[i], NULL, process_job_thread, arg) != 0) {

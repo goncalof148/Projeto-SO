@@ -43,7 +43,10 @@ int main(int argc, char *argv[]) {
   printf("Notification pipe connected\n");
 
   // TODO open pipes
-  kvs_connect(req_pipe_path, resp_pipe_path, argv[2], notif_pipe_path, &notif_pipe_fd);
+  if (kvs_connect(req_pipe_path, resp_pipe_path, argv[2],
+      notif_pipe_path, &notif_pipe_fd) == 1) {
+      exit(1);
+  }
 
   while (1) {
     switch (get_next(STDIN_FILENO)) {

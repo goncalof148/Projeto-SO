@@ -2,6 +2,7 @@
 
 #include <limits.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -100,6 +101,7 @@ enum Command get_next(int fd) {
 
   switch (buf[0]) {
   case 'S':
+    printf("hi");
     if (read(fd, buf + 1, 9) != 9 || strncmp(buf, "SUBSCRIBE ", 10) != 0) {
       cleanup(fd);
       return CMD_INVALID;

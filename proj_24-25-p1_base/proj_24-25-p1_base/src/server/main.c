@@ -22,6 +22,12 @@ struct SharedData {
   pthread_mutex_t directory_mutex;
 };
 
+
+struct HostThreadData {
+  char* host_pipe_path;
+  int host_pipe_fd;
+};
+
 pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t n_current_backups_lock = PTHREAD_MUTEX_INITIALIZER;
 
@@ -277,62 +283,53 @@ static void dispatch_threads(DIR *dir) {
   free(threads);
 }
 
+void welcome_clients(void* arg) {
+  int fserv, frep, fresp, fnot;
+  ssize_t n;
 
-int main(int argc, char **argv) {
-  int fserv, counter = 0, frep, fresp, fnot;
-  ssize_t n; 
   char buf[121], rep_pipe_path[41] = "", resp_pipe_path[41] = "", notifications_pipe_path[41] = "";
-  
-  if (argc < 4) {
-    write_str(STDERR_FILENO, "Usage: ");
-    write_str(STDERR_FILENO, argv[0]);
-    write_str(STDERR_FILENO, " <jobs_dir>");
-    write_str(STDERR_FILENO, " <max_threads>");
-    write_str(STDERR_FILENO, " <max_backups> \n");
-    return 1;
-  }
 
-  unlink(argv[4]);
-  if (mkfifo(argv[4], 0666) < 0){
-    perror("Error creating named pipe");
-    exit (1);
-  }
-  
-  printf("Pipe created: %s\n", argv[4]);
-
-  if ((fserv = open(argv[4], O_RDWR)) < 0) {
-    perror("Error opening the named pipe");
-	  exit(1);
-  }
-
-  printf("Server listening on pipe: %s\n", argv[4]);
+  struct HostThreadData *data = (struct HostThreadData *) (arg);
+  fserv = data->host_pipe_fd;
 
   for (;;) {
     n = read (fserv, buf, 121); 
     if (n <= 0) break;
     printf("%s\n", buf);
-    for (size_t i = 2; i < strlen(buf); i++) { // Skip OP_CODE (assume first two chars)
-        if (buf[i] == '|') {
-            counter++;
-        } else if (buf[i] == '\0') {
-            break;
-        } else if (counter == 0) {
-            // Append to rep_pipe_path
-            size_t len = strlen(rep_pipe_path);
-            rep_pipe_path[len] = buf[i];
-            rep_pipe_path[len + 1] = '\0';
-        } else if (counter == 1) {
-            // Append to resp_pipe_path
-            size_t len = strlen(resp_pipe_path);
-            resp_pipe_path[len] = buf[i];
-            resp_pipe_path[len + 1] = '\0';
-        } else if (counter == 2) {
-            // Append to notifications_pipe_path
-            size_t len = strlen(notifications_pipe_path);
-            notifications_pipe_path[len] = buf[i];
-            notifications_pipe_path[len + 1] = '\0';
-        }
-    }
+
+    if (buf[0] != '1') return;
+    
+    strncpy(rep_pipe_path, buf + 1, 40);
+    rep_pipe_path[41] = '\0';
+
+    strncpy(resp_pipe_path, buf + 41, 40);
+    resp_pipe_path[41] = '\0';
+    
+    strncpy(notifications_pipe_path, buf + 81, 40);
+    notifications_pipe_path[41] = '\0';
+    
+    // for (size_t i = 2; i < strlen(buf); i++) { // Skip OP_CODE (assume first two chars)
+    //     if (buf[i] == '|') {
+    //         counter++;
+    //     } else if (buf[i] == '\0') {
+    //         break;
+    //     } else if (counter == 0) {
+    //         // Append to rep_pipe_path
+    //         size_t len = strlen(rep_pipe_path);
+    //         rep_pipe_path[len] = buf[i];
+    //         rep_pipe_path[len + 1] = '\0';
+    //     } else if (counter == 1) {
+    //         // Append to resp_pipe_path
+    //         size_t len = strlen(resp_pipe_path);
+    //         resp_pipe_path[len] = buf[i];
+    //         resp_pipe_path[len + 1] = '\0';
+    //     } else if (counter == 2) {
+    //         // Append to notifications_pipe_path
+    //         size_t len = strlen(notifications_pipe_path);
+    //         notifications_pipe_path[len] = buf[i];
+    //         notifications_pipe_path[len + 1] = '\0';
+    //     }
+    // }
     //printf("REP %s\n", rep_pipe_path);
     //printf("RESP %s\n", resp_pipe_path);
     //printf("NOT %s\n", notifications_pipe_path);
@@ -357,7 +354,49 @@ int main(int argc, char **argv) {
     } else{
       printf("NOT pipe opened: %s\n", notifications_pipe_path);
     }
+  }
+}
 
+
+int main(int argc, char **argv) {
+  int fserv;
+
+  if (argc < 4) {
+    write_str(STDERR_FILENO, "Usage: ");
+    write_str(STDERR_FILENO, argv[0]);
+    write_str(STDERR_FILENO, " <jobs_dir>");
+    write_str(STDERR_FILENO, " <max_threads>");
+    write_str(STDERR_FILENO, " <max_backups> \n");
+    return 1;
+  }
+
+  // TODO: check params
+  char* host_pipe_path = argv[4];
+
+  unlink(host_pipe_path);
+  if (mkfifo(host_pipe_path, 0666) < 0){
+    printf("Path: %s\n", host_pipe_path);
+    perror("Error creating named pipe");
+    exit (1);
+  }
+  
+  printf("Pipe created: %s\n", host_pipe_path);
+
+  if ((fserv = open(host_pipe_path, O_RDWR)) < 0) {
+    perror("Error opening the named pipe");
+	  exit(1);
+  }
+
+  printf("Server listening on pipe: %s\n", host_pipe_path);
+
+  struct HostThreadData data;
+  data.host_pipe_path = host_pipe_path;
+  data.host_pipe_fd = fserv;
+  
+  pthread_t host_thread;
+  if (pthread_create(&host_thread, NULL, (void*)welcome_clients, (void*)(&data)) != 0) {
+      fprintf(stderr, "Failed to create welcome thread\n");
+      exit(1);
   }
 
   jobs_directory = argv[1];
@@ -410,10 +449,10 @@ int main(int argc, char **argv) {
     active_backups--;
   }
   
-  close(fserv);
-  printf("Closing pipe: %s\n", argv[4]);
-  unlink(argv[4]);
   kvs_terminate();
+  printf("Closing pipe: %s\n", argv[4]);
+  close(fserv);
+  unlink(argv[4]);
 
   return 0;
 }
