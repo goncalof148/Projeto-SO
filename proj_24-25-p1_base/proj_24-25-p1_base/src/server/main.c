@@ -28,6 +28,18 @@ struct HostThreadData {
   int host_pipe_fd;
 };
 
+
+typedef struct Client {
+    int req_fd;         // File descriptor for request pipe
+    int resp_fd;        // File descriptor for response pipe
+    int notif_fd;       // File descriptor for notification pipe
+    pthread_t thread;   // Thread handling the client
+} Client;
+
+Client clients[S_VALUE];    // Array to store client information
+int client_count = 0;           // Current number of active clients
+pthread_mutex_t client_mutex = PTHREAD_MUTEX_INITIALIZER;  // Mutex to protect client list
+
 pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t n_current_backups_lock = PTHREAD_MUTEX_INITIALIZER;
 
@@ -35,6 +47,15 @@ size_t active_backups = 0; // Number of active backups
 size_t max_backups;        // Maximum allowed simultaneous backups
 size_t max_threads;        // Maximum allowed simultaneous threads
 char *jobs_directory = NULL;
+
+
+void setClients(){
+  for (int i = 0; i < S_VALUE; i++) {
+    clients[i].req_fd = -1;
+    clients[i].resp_fd = -1;
+    clients[i].notif_fd = -1;
+  }
+}
 
 int filter_job_files(const struct dirent *entry) {
   const char *dot = strrchr(entry->d_name, '.');
@@ -283,6 +304,75 @@ static void dispatch_threads(DIR *dir) {
   free(threads);
 }
 
+int find_free_position() {
+    for (int i = 0; i <= client_count; i++) {
+        if (clients[i].req_fd == -1) {  // Check if the slot is free
+            return i;  // Return the free position
+        }
+    }
+    return -1;  // No free position found
+}
+
+
+void add_client(int req_fd, int resp_fd, int notif_fd) {
+    pthread_mutex_lock(&client_mutex);
+    int position = find_free_position();
+    
+    if (client_count < S_VALUE || position == -1) {
+        clients[position].req_fd = req_fd;
+        clients[position].resp_fd = resp_fd;
+        clients[position].notif_fd = notif_fd;
+        client_count++;
+        printf("Client added: %d\n", position);
+    } else {
+        fprintf(stderr, "Max client limit reached\n");
+    }
+
+    pthread_mutex_unlock(&client_mutex);
+}
+
+void remove_client(int id_client) {
+    if (id_client < 0 || id_client >= S_VALUE) {
+        fprintf(stderr, "Invalid client index: %d\n", id_client);
+        return;
+    }
+
+    pthread_mutex_lock(&client_mutex);
+
+    // Check if the slot is already free
+    if (clients[id_client].req_fd == -1) {
+        printf("Client at index %d is already free\n", id_client);
+        pthread_mutex_unlock(&client_mutex);
+        return;
+    }
+
+    // Log client removal
+    printf("Removing client at index %d\n", id_client);
+
+    // Close file descriptors
+    if (clients[id_client].req_fd != -1) {
+        close(clients[id_client].req_fd);
+    }
+    if (clients[id_client].resp_fd != -1) {
+        close(clients[id_client].resp_fd);
+    }
+    if (clients[id_client].notif_fd != -1) {
+        close(clients[id_client].notif_fd);
+    }
+
+    // Clear the client entry
+    memset(&clients[id_client], 0, sizeof(Client));
+    clients[id_client].req_fd = -1;  // Mark the slot as free
+    clients[id_client].resp_fd = -1;
+    clients[id_client].notif_fd = -1;
+
+    client_count--;
+
+    pthread_mutex_unlock(&client_mutex);
+}
+
+
+
 void welcome_clients(void* arg) {
   int fserv, frep, fresp, fnot;
   ssize_t n;
@@ -307,32 +397,6 @@ void welcome_clients(void* arg) {
     
     strncpy(notifications_pipe_path, buf + 81, 40);
     notifications_pipe_path[41] = '\0';
-    
-    // for (size_t i = 2; i < strlen(buf); i++) { // Skip OP_CODE (assume first two chars)
-    //     if (buf[i] == '|') {
-    //         counter++;
-    //     } else if (buf[i] == '\0') {
-    //         break;
-    //     } else if (counter == 0) {
-    //         // Append to rep_pipe_path
-    //         size_t len = strlen(rep_pipe_path);
-    //         rep_pipe_path[len] = buf[i];
-    //         rep_pipe_path[len + 1] = '\0';
-    //     } else if (counter == 1) {
-    //         // Append to resp_pipe_path
-    //         size_t len = strlen(resp_pipe_path);
-    //         resp_pipe_path[len] = buf[i];
-    //         resp_pipe_path[len + 1] = '\0';
-    //     } else if (counter == 2) {
-    //         // Append to notifications_pipe_path
-    //         size_t len = strlen(notifications_pipe_path);
-    //         notifications_pipe_path[len] = buf[i];
-    //         notifications_pipe_path[len + 1] = '\0';
-    //     }
-    // }
-    //printf("REP %s\n", rep_pipe_path);
-    //printf("RESP %s\n", resp_pipe_path);
-    //printf("NOT %s\n", notifications_pipe_path);
 
     if ((frep = open(rep_pipe_path, O_RDONLY)) < 0) {
       perror("Error opening the named pipe");
@@ -354,6 +418,7 @@ void welcome_clients(void* arg) {
     } else{
       printf("NOT pipe opened: %s\n", notifications_pipe_path);
     }
+    add_client(frep, fresp, fnot);
   }
 }
 
@@ -371,6 +436,7 @@ int main(int argc, char **argv) {
   }
 
   // TODO: check params
+
   char* host_pipe_path = argv[4];
 
   unlink(host_pipe_path);
@@ -425,6 +491,8 @@ int main(int argc, char **argv) {
     write_str(STDERR_FILENO, "Invalid number of threads\n");
     return 0;
   }
+
+  setClients();
 
   if (kvs_init()) {
     write_str(STDERR_FILENO, "Failed to initialize KVS\n");
