@@ -17,7 +17,6 @@ int main(int argc, char *argv[]) {
             argv[0]);
     return 1;
   }
-  int notif_pipe_fd;
   char req_pipe_path[256] = "/tmp/req";
   char resp_pipe_path[256] = "/tmp/resp";
   char notif_pipe_path[256] = "/tmp/notif";
@@ -26,25 +25,9 @@ int main(int argc, char *argv[]) {
   unsigned int delay_ms;
   size_t num;
 
-  unlink(notif_pipe_path);
-  if (mkfifo(notif_pipe_path, 0666) < 0){
-    exit (1);
-  }
-
-  if ((notif_pipe_fd = open(notif_pipe_path, O_RDONLY | O_NONBLOCK)) < 0) {
-        perror("Error opening notification pipe");
-        return -1;
-    } 
-
-  if(notif_pipe_fd == 0){
-    exit(1);
-  }
-
-  printf("Notification pipe connected\n");
-
   // TODO open pipes
-  if (kvs_connect(req_pipe_path, resp_pipe_path, argv[2],
-      notif_pipe_path, &notif_pipe_fd) == 1) {
+  if (kvs_connect(req_pipe_path, resp_pipe_path, argv[2], notif_pipe_path) == 1) {
+      fflush(stdout);
       exit(1);
   }
 
@@ -55,7 +38,7 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "Failed to disconnect to the server\n");
         return 1;
       }
-      // TODO: end notifications thread
+     
       printf("Disconnected from server\n");
       return 0;
 

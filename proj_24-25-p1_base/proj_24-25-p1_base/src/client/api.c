@@ -12,97 +12,150 @@
 #define FIELD_SIZE 40
 #define REQUEST_BUFFER_SIZE (1 + FIELD_SIZE * 3)
 
+struct Connection {
+  int req_pipe;
+  int resp_pipe;
+  int notif_pipe;
+
+  const char *req_pipe_path;
+  const char *resp_pipe_path;
+  const char *notif_pipe_path;
+};
+
+struct Connection connection;
+
+int make_pipe(char const *pipe_path) { 
+  unlink(pipe_path);
+  if (mkfifo(pipe_path, 0666) < 0) {
+    perror("Error creating pipe");
+    return 1;
+  }
+
+  // printf("Pipe '%s' created successfully\n", pipe_path);
+  return 0;
+}
+
+int open_pipe(char const *pipe_path, int pipe_flags, int *fd_out) { 
+  if ((*fd_out = open(pipe_path, pipe_flags)) < 0) {
+    perror("Error opening pipe");
+    return 1;
+  }
+
+  // printf("Pipe '%s' opened successfully\n", pipe_path);
+  return 0;
+}
+
+int read_response(int opcode) {
+  char buf[2];
+  ssize_t n = read(connection.resp_pipe, buf, 2);
+  
+  if (n < 2) {
+    return -1;
+  }
+
+  printf("%s\n", buf);
+
+  if (buf[0] != '0' + opcode) {
+    return -1;
+  }
+
+  return buf[1];
+}
+
+int send_message(int opcode, char *message_buf) {
+  message_buf[0] = '0' + (char)opcode;
+
+  if (write(connection.req_pipe, message_buf, sizeof(message_buf)) < 0) {
+    perror("Error sending request to server");
+    return 1;
+  }
+
+  int response = read_response(opcode);
+  printf("%d", response);
+  return 0;
+}
+
 int kvs_connect(char const *req_pipe_path, char const *resp_pipe_path,
-                char const *server_pipe_path, char const *notif_pipe_path,
-                int *notif_pipe) {
+                char const *server_pipe_path, char const *notif_pipe_path) {
+  int fserv;
 
-    int req_pipe, resp_pipe, fserv;
+  connection.req_pipe_path = req_pipe_path;
+  connection.resp_pipe_path = resp_pipe_path;
+  connection.notif_pipe_path = notif_pipe_path;
 
-    unlink(req_pipe_path);
-    unlink(resp_pipe_path);
+  if (make_pipe(req_pipe_path) != 0
+    || make_pipe(resp_pipe_path) != 0
+    || make_pipe(notif_pipe_path) != 0) {
+    return 1;
+  }
 
-    if (mkfifo(req_pipe_path, 0666) < 0) {
-        perror("Error creating request pipe");
-        return 1;
-    } else {
-        printf("Request pipe '%s' created successfully\n", req_pipe_path);
-    }
+  if (open_pipe(server_pipe_path, O_RDWR, &fserv) != 0) {
+    fprintf(stderr, "Could not open server pipe\n");
+    return 1;
+  }
+  
+  char buffer[121] = {0};
 
-    if (mkfifo(resp_pipe_path, 0666) < 0) {
-        perror("Error creating response pipe");
-        return 1;
-    } else {
-        printf("Response pipe '%s' created successfully\n", req_pipe_path);
-    }
+  // Copy OP_CODE to the buffer
+  buffer[0] = '0' + OP_CODE_CONNECT;
+  strcpy(buffer + 1, req_pipe_path);
+  strcpy(buffer + 41, resp_pipe_path);
+  strcpy(buffer + 81, notif_pipe_path);
+  
+  if (write(fserv, buffer, sizeof(buffer)) < 0) {
+    perror("Error writing to server pipe");
+    return 1;
+  }
 
-    if ((fserv = open(server_pipe_path, O_RDWR)) < 0) {
-        perror("Error opening server pipe");
-        return 1;
-    }
-    
-    char buffer[121];
-    memset(buffer, 0, sizeof(buffer));  // Initialize the buffer
+  if (open_pipe(req_pipe_path, O_WRONLY, &connection.req_pipe) != 0
+    || open_pipe(resp_pipe_path, O_RDONLY, &connection.resp_pipe) != 0
+    || open_pipe(notif_pipe_path, O_RDONLY | O_NONBLOCK, &connection.notif_pipe) != 0) {
+    return 1;
+  }
 
-    // Copy OP_CODE to the buffer
-    char op_code[20];
-    sprintf(op_code, "%d", OP_CODE_CONNECT);
-    buffer[0] = '0' + OP_CODE_CONNECT;
-    strcpy(buffer + 1, req_pipe_path);
-    strcpy(buffer + 41, resp_pipe_path);
-    strcpy(buffer + 81, notif_pipe_path);
-    
-    if (write(fserv, buffer, sizeof(buffer)) < 0) {
-        perror("Error writing to server pipe");
-        return 1;
-    }
+  printf("Waiting for server response...\n");
 
-    // Open the request pipe (write-only)
-    
-    if ((req_pipe = open(req_pipe_path, O_WRONLY )) < 0) {
-        perror("Error opening request pipe");
-        return 1;
-    } else {
-        printf("Request pipe '%s' opened successfully\n", req_pipe_path);
-    }
+  fflush(stdout);
 
-    // Open the response pipe (read-only)
-    if ((resp_pipe = open(resp_pipe_path, O_RDONLY)) < 0) {
-        perror("Error opening response pipe");
-        close(req_pipe);
-        return 1;
-    } else{
+  if (read_response(OP_CODE_CONNECT) != 0) {
+    return 1;
+  }
 
-        printf("Response pipe '%s' opened successfully\n", resp_pipe_path);
-    }
+  printf("Connection ready\n");
+  fflush(stdout);
 
-    if (notif_pipe_path == NULL && notif_pipe == NULL) { //just to use var NEEDS CHANGE
-        printf("NULL\n");
-    }
-
-
-    // Close server pipe after writing the message
-    close(fserv);
-    close(req_pipe);
-    close(resp_pipe);
-
-    return 0;
+  // Close server pipe after writing the message
+  close(fserv);
+  return 0;
 }
 
 int kvs_disconnect(void) {
+  char buffer[1] = {0};
+  send_message(OP_CODE_DISCONNECT, buffer);
+
+  close(connection.req_pipe);
+  close(connection.resp_pipe);
+  close(connection.notif_pipe);
+
+  unlink(connection.req_pipe_path);
+  unlink(connection.resp_pipe_path);
+  unlink(connection.notif_pipe_path);
+
   // close pipes and unlink pipe files
   return 0;
 }
 
+
 int kvs_subscribe(const char *key) {
-    printf("%s", key);
-  // send subscribe message to request pipe and wait for response in response
-  // pipe
-  return 0;
+  char buffer[42] = {0};
+  strcpy(buffer + 1, key);
+
+  return send_message(OP_CODE_SUBSCRIBE, buffer);
 }
 
 int kvs_unsubscribe(const char *key) {
-    printf("%s", key);
-  // send unsubscribe message to request pipe and wait for response in response
-  // pipe
-  return 0;
+  char buffer[42] = {0};
+  strcpy(buffer + 1, key);
+
+  return send_message(OP_CODE_UNSUBSCRIBE, buffer);
 }
