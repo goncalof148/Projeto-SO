@@ -31,7 +31,6 @@ struct HostThreadData {
   int host_pipe_fd;
 };
 
-
 typedef struct Client {
     int req_pipe;         // File descriptor for request pipe
     int resp_pipe;        // File descriptor for response pipe
