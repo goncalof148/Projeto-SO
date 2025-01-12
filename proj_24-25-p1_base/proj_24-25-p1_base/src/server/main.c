@@ -8,8 +8,11 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <semaphore.h>
 #include <errno.h>
 
+#include "../common/constants.h"
+#include "../common/protocol.h"
 #include "constants.h"
 #include "io.h"
 #include "operations.h"
@@ -24,20 +27,27 @@ struct SharedData {
 
 
 struct HostThreadData {
-  char* host_pipe_path;
+  char const* host_pipe_path;
   int host_pipe_fd;
 };
 
 
 typedef struct Client {
-    int req_fd;         // File descriptor for request pipe
-    int resp_fd;        // File descriptor for response pipe
-    int notif_fd;       // File descriptor for notification pipe
+    int req_pipe;         // File descriptor for request pipe
+    int resp_pipe;        // File descriptor for response pipe
+    int notif_pipe;       // File descriptor for notification pipe
+    int id;               // Unique client identifier (for debugging only)
     pthread_t thread;   // Thread handling the client
 } Client;
 
-Client clients[S_VALUE];    // Array to store client information
-int client_count = 0;           // Current number of active clients
+Client clients_buf[S_VALUE];    // Array to store client information
+int total_client_count = 0;           // Number of total clients
+
+int client_cons_idx;
+int client_prod_idx;
+sem_t client_cons_sem;
+sem_t client_prod_sem;
+
 pthread_mutex_t client_mutex = PTHREAD_MUTEX_INITIALIZER;  // Mutex to protect client list
 
 pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
@@ -47,15 +57,6 @@ size_t active_backups = 0; // Number of active backups
 size_t max_backups;        // Maximum allowed simultaneous backups
 size_t max_threads;        // Maximum allowed simultaneous threads
 char *jobs_directory = NULL;
-
-
-void setClients(){
-  for (int i = 0; i < S_VALUE; i++) {
-    clients[i].req_fd = -1;
-    clients[i].resp_fd = -1;
-    clients[i].notif_fd = -1;
-  }
-}
 
 int filter_job_files(const struct dirent *entry) {
   const char *dot = strrchr(entry->d_name, '.');
@@ -265,113 +266,114 @@ static void *get_file(void *arguments) {
   pthread_exit(NULL);
 }
 
-static void dispatch_threads(DIR *dir) {
-  pthread_t *threads = malloc(max_threads * sizeof(pthread_t));
-
-  if (threads == NULL) {
-    fprintf(stderr, "Failed to allocate memory for threads\n");
-    return;
+int send_response(struct Client *client, int opcode, char response) {
+  char buf[2];
+  buf[0] = '0' + opcode;
+  buf[1] = response;
+  ssize_t n = write(client->resp_pipe, buf, 2);
+  
+  if (n < 2) {
+    return 1;
   }
 
-  struct SharedData thread_data = {dir, jobs_directory,
-                                   PTHREAD_MUTEX_INITIALIZER};
+  printf("Sent response %s\n", buf);
 
-  for (size_t i = 0; i < max_threads; i++) {
-    if (pthread_create(&threads[i], NULL, get_file, (void *)&thread_data) !=
-        0) {
-      fprintf(stderr, "Failed to create thread %zu\n", i);
-      pthread_mutex_destroy(&thread_data.directory_mutex);
-      free(threads);
-      return;
-    }
-  }
-
-  // ler do FIFO de registo
-
-  for (unsigned int i = 0; i < max_threads; i++) {
-    if (pthread_join(threads[i], NULL) != 0) {
-      fprintf(stderr, "Failed to join thread %u\n", i);
-      pthread_mutex_destroy(&thread_data.directory_mutex);
-      free(threads);
-      return;
-    }
-  }
-
-  if (pthread_mutex_destroy(&thread_data.directory_mutex) != 0) {
-    fprintf(stderr, "Failed to destroy directory_mutex\n");
-  }
-
-  free(threads);
+  return 0;
 }
 
 int find_free_position() {
-    for (int i = 0; i <= client_count; i++) {
-        if (clients[i].req_fd == -1) {  // Check if the slot is free
+    for (int i = 0; i <= S_VALUE; i++) {
+        if (clients_buf[i].req_pipe == -1) {  // Check if the slot is free
             return i;  // Return the free position
         }
     }
     return -1;  // No free position found
 }
 
+void add_client(int req_pipe, int resp_pipe, int notif_pipe) {
+    sem_wait(&client_prod_sem);
 
-void add_client(int req_fd, int resp_fd, int notif_fd) {
     pthread_mutex_lock(&client_mutex);
-    int position = find_free_position();
-    
-    if (client_count < S_VALUE || position == -1) {
-        clients[position].req_fd = req_fd;
-        clients[position].resp_fd = resp_fd;
-        clients[position].notif_fd = notif_fd;
-        client_count++;
-        printf("Client added: %d\n", position);
-    } else {
-        fprintf(stderr, "Max client limit reached\n");
-    }
-
+    clients_buf[client_prod_idx].req_pipe = req_pipe;
+    clients_buf[client_prod_idx].resp_pipe = resp_pipe;
+    clients_buf[client_prod_idx].notif_pipe = notif_pipe;
+    clients_buf[client_prod_idx].id = total_client_count++;
+    printf("Client added: %d\n", clients_buf[client_prod_idx].id);
+    client_prod_idx = (client_prod_idx + 1) % S_VALUE;
     pthread_mutex_unlock(&client_mutex);
+    
+    sem_post(&client_cons_sem);
 }
 
-void remove_client(int id_client) {
-    if (id_client < 0 || id_client >= S_VALUE) {
-        fprintf(stderr, "Invalid client index: %d\n", id_client);
-        return;
-    }
-
-    pthread_mutex_lock(&client_mutex);
-
-    // Check if the slot is already free
-    if (clients[id_client].req_fd == -1) {
-        printf("Client at index %d is already free\n", id_client);
-        pthread_mutex_unlock(&client_mutex);
-        return;
-    }
-
+void remove_client(struct Client *client) {
     // Log client removal
-    printf("Removing client at index %d\n", id_client);
+    printf("Removing client with id %d\n", client->id);
 
     // Close file descriptors
-    if (clients[id_client].req_fd != -1) {
-        close(clients[id_client].req_fd);
-    }
-    if (clients[id_client].resp_fd != -1) {
-        close(clients[id_client].resp_fd);
-    }
-    if (clients[id_client].notif_fd != -1) {
-        close(clients[id_client].notif_fd);
-    }
-
-    // Clear the client entry
-    memset(&clients[id_client], 0, sizeof(Client));
-    clients[id_client].req_fd = -1;  // Mark the slot as free
-    clients[id_client].resp_fd = -1;
-    clients[id_client].notif_fd = -1;
-
-    client_count--;
-
-    pthread_mutex_unlock(&client_mutex);
+    close(client->req_pipe);
+    close(client->resp_pipe);
+    close(client->notif_pipe);
+;
+    sem_post(&client_prod_sem);
 }
 
+static void process_client(struct Client *client) {
+  send_response(client, OP_CODE_CONNECT, 0);
 
+  for (;;) {
+    char req_buf[121];
+    int n = read(client->req_pipe, req_buf, sizeof(req_buf));
+
+    if (n <= 0) {
+      printf("Client disconnected abruptly\n");
+      return;
+    }
+
+    int opcode = (int)(req_buf[0] - '0');
+    switch (opcode) {
+      case OP_CODE_DISCONNECT:
+        printf("Closing client\n");
+        send_response(client, OP_CODE_DISCONNECT, 0);
+        return;
+      default:
+        fprintf(stderr, "Error processing request: unknown opcode %d\n", opcode);
+        break;
+    }
+  }
+}
+
+static void get_client() {
+  for (;;) {
+    sem_wait(&client_cons_sem);
+
+    pthread_mutex_lock(&client_mutex); 
+    // NOTE: passes by value, so client is a copy of the one in buffer.
+    // this is necessary for a producer-consumer buffer 
+    struct Client client = clients_buf[client_cons_idx];
+    client_cons_idx = (client_cons_idx + 1) % S_VALUE;
+    pthread_mutex_unlock(&client_mutex);
+    
+    process_client(&client);
+    remove_client(&client);
+  }
+  // TODO: maybe not infinite loop?
+}
+
+void init_clients() {
+  sem_init(&client_cons_sem, 0, 0);
+  sem_init(&client_prod_sem, 0, S_VALUE);
+
+  for (size_t i = 0; i < S_VALUE; i++) {
+    clients_buf[i].req_pipe = -1;
+    clients_buf[i].resp_pipe = -1;
+    clients_buf[i].notif_pipe = -1;
+
+    if (pthread_create(&clients_buf[i].thread, NULL, (void *)get_client, NULL) != 0) {
+      fprintf(stderr, "Failed to create thread %zu\n", i);
+      return;
+    }
+  }
+}
 
 void welcome_clients(void* arg) {
   int fserv, frep, fresp, fnot;
@@ -418,26 +420,36 @@ void welcome_clients(void* arg) {
     } else{
       printf("NOT pipe opened: %s\n", notifications_pipe_path);
     }
+
+    // NOTE: should open client pipes here or in add_client? (or in get_client?)
+
     add_client(frep, fresp, fnot);
   }
 }
 
-
-int main(int argc, char **argv) {
+static void dispatch_threads(DIR *dir, char const* host_pipe_path) {
+  pthread_t *threads = malloc(max_threads * sizeof(pthread_t));
   int fserv;
 
-  if (argc < 4) {
-    write_str(STDERR_FILENO, "Usage: ");
-    write_str(STDERR_FILENO, argv[0]);
-    write_str(STDERR_FILENO, " <jobs_dir>");
-    write_str(STDERR_FILENO, " <max_threads>");
-    write_str(STDERR_FILENO, " <max_backups> \n");
-    return 1;
+  if (threads == NULL) {
+    fprintf(stderr, "Failed to allocate memory for threads\n");
+    return;
   }
 
-  // TODO: check params
+  struct SharedData thread_data = {dir, jobs_directory,
+                                   PTHREAD_MUTEX_INITIALIZER};
 
-  char* host_pipe_path = argv[4];
+  for (size_t i = 0; i < max_threads; i++) {
+    if (pthread_create(&threads[i], NULL, get_file, (void *)&thread_data) !=
+        0) {
+      fprintf(stderr, "Failed to create thread %zu\n", i);
+      pthread_mutex_destroy(&thread_data.directory_mutex);
+      free(threads);
+      return;
+    }
+  }
+
+  init_clients();
 
   unlink(host_pipe_path);
   if (mkfifo(host_pipe_path, 0666) < 0){
@@ -462,7 +474,35 @@ int main(int argc, char **argv) {
   pthread_t host_thread;
   if (pthread_create(&host_thread, NULL, (void*)welcome_clients, (void*)(&data)) != 0) {
       fprintf(stderr, "Failed to create welcome thread\n");
-      exit(1);
+      return;
+  }
+
+  for (unsigned int i = 0; i < max_threads; i++) {
+    if (pthread_join(threads[i], NULL) != 0) {
+      fprintf(stderr, "Failed to join thread %u\n", i);
+      pthread_mutex_destroy(&thread_data.directory_mutex);
+      free(threads);
+      return;
+    }
+  }
+
+  if (pthread_mutex_destroy(&thread_data.directory_mutex) != 0) {
+    fprintf(stderr, "Failed to destroy directory_mutex\n");
+  }
+
+  free(threads);
+  close(fserv);
+}
+
+
+int main(int argc, char **argv) {
+  if (argc < 4) {
+    write_str(STDERR_FILENO, "Usage: ");
+    write_str(STDERR_FILENO, argv[0]);
+    write_str(STDERR_FILENO, " <jobs_dir>");
+    write_str(STDERR_FILENO, " <max_threads>");
+    write_str(STDERR_FILENO, " <max_backups> \n");
+    return 1;
   }
 
   jobs_directory = argv[1];
@@ -492,8 +532,6 @@ int main(int argc, char **argv) {
     return 0;
   }
 
-  setClients();
-
   if (kvs_init()) {
     write_str(STDERR_FILENO, "Failed to initialize KVS\n");
     return 1;
@@ -505,7 +543,7 @@ int main(int argc, char **argv) {
     return 0;
   }
 
-  dispatch_threads(dir);
+  dispatch_threads(dir, argv[4]);
 
   if (closedir(dir) == -1) {
     fprintf(stderr, "Failed to close directory\n");
@@ -519,7 +557,6 @@ int main(int argc, char **argv) {
   
   kvs_terminate();
   printf("Closing pipe: %s\n", argv[4]);
-  close(fserv);
   unlink(argv[4]);
 
   return 0;
