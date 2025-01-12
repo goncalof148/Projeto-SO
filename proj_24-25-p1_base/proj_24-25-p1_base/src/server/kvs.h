@@ -8,6 +8,8 @@
 typedef struct KeyNode {
   char *key;
   char *value;
+  int *fd_notif_subscribers[100]; //maybe ver valor
+  int subscriber_count;
   struct KeyNode *next;
 } KeyNode;
 
@@ -44,5 +46,9 @@ int delete_pair(HashTable *ht, const char *key);
 /// Frees the hashtable.
 /// @param ht Hash table to be deleted.
 void free_table(HashTable *ht);
+
+int subscribe_client(HashTable *ht, const char *key, int notif_fd);
+
+int unsubscribe_client(HashTable *ht, const char *key, int notif_fd);
 
 #endif // KVS_H

@@ -122,3 +122,83 @@ void free_table(HashTable *ht) {
   pthread_rwlock_destroy(&ht->tablelock);
   free(ht);
 }
+
+int subscribe_client(HashTable *ht, const char *key, int notif_fd) {
+    int index = hash(key);
+    if (index < 0 || index >= TABLE_SIZE) {
+        return -1; // Invalid index
+    }
+
+    pthread_rwlock_wrlock(&ht->tablelock); // Lock for writing since we may modify the subscribers list
+
+    // Search for the key in the hash table
+    KeyNode *keyNode = ht->table[index];
+    while (keyNode != NULL) {
+        if (strcmp(keyNode->key, key) == 0) {
+            // Key found, check if the client is already subscribed
+            for (int i = 0; i < keyNode->subscriber_count; i++) {
+                if (keyNode->fd_notif_subscribers[i] == notif_fd) {
+                    // Client is already subscribed
+                    pthread_rwlock_unlock(&ht->tablelock);
+                    printf("Client already subscribed to key: %s\n", key);
+                    return 0;
+                }
+            }
+
+            // Add the client to the list of subscribers
+            if (keyNode->subscriber_count < 100) { // Assuming max 100 subscribers per key
+                keyNode->fd_notif_subscribers[keyNode->subscriber_count++] = notif_fd;
+                printf("Client subscribed to key: %s\n", key);
+                pthread_rwlock_unlock(&ht->tablelock);
+                return 0;
+            } else {
+                // Max subscribers reached
+                pthread_rwlock_unlock(&ht->tablelock);
+                return -1;
+            }
+        }
+        keyNode = keyNode->next; // Move to the next node
+    }
+
+    // Key not found
+    pthread_rwlock_unlock(&ht->tablelock);
+    return -1;
+}
+
+int unsubscribe_client(HashTable *ht, const char *key, int notif_fd) {
+    int index = hash(key);
+    if (index < 0 || index >= TABLE_SIZE) {
+        return -1; // Invalid index
+    }
+
+    pthread_rwlock_wrlock(&ht->tablelock); // Lock for writing since we may modify the subscribers list
+
+    // Search for the key in the hash table
+    KeyNode *keyNode = ht->table[index];
+    while (keyNode != NULL) {
+        if (strcmp(keyNode->key, key) == 0) {
+            // Key found, remove the client from the list
+            for (int i = 0; i < keyNode->subscriber_count; i++) {
+                if (keyNode->fd_notif_subscribers[i] == notif_fd) {
+                    // Remove this subscriber
+                    keyNode->fd_notif_subscribers[i] = keyNode->fd_notif_subscribers[keyNode->subscriber_count - 1];
+                    keyNode->subscriber_count--;
+                    printf("Client unsubscribed from key: %s\n", key);
+                    pthread_rwlock_unlock(&ht->tablelock);
+                    return 0; // Successfully unsubscribed
+                }
+            }
+
+            // Client not found in the subscriber list
+            pthread_rwlock_unlock(&ht->tablelock);
+            printf("Client was not subscribed to key: %s\n", key);
+            return -1;
+        }
+        keyNode = keyNode->next; // Move to the next node
+    }
+
+    // Key not found
+    pthread_rwlock_unlock(&ht->tablelock);
+    return -1;
+}
+
