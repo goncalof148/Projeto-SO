@@ -140,7 +140,7 @@ int subscribe_client(HashTable *ht, const char *key, int notif_fd) {
                 if (keyNode->fd_notif_subscribers[i] == notif_fd) {
                     // Client is already subscribed
                     pthread_rwlock_unlock(&ht->tablelock);
-                    printf("Client already subscribed to key: %s\n", key);
+                    //printf("Client already subscribed to key: %s\n", key);
                     return 0;
                 }
             }
@@ -148,7 +148,7 @@ int subscribe_client(HashTable *ht, const char *key, int notif_fd) {
             // Add the client to the list of subscribers
             if (keyNode->subscriber_count < 100) { // Assuming max 100 subscribers per key
                 keyNode->fd_notif_subscribers[keyNode->subscriber_count++] = notif_fd;
-                printf("Client subscribed to key: %s\n", key);
+                //printf("Client subscribed to key: %s\n", key);
                 pthread_rwlock_unlock(&ht->tablelock);
                 return 0;
             } else {
@@ -183,7 +183,7 @@ int unsubscribe_client(HashTable *ht, const char *key, int notif_fd) {
                     // Remove this subscriber
                     keyNode->fd_notif_subscribers[i] = keyNode->fd_notif_subscribers[keyNode->subscriber_count - 1];
                     keyNode->subscriber_count--;
-                    printf("Client unsubscribed from key: %s\n", key);
+                    //printf("Client unsubscribed from key: %s\n", key);
                     pthread_rwlock_unlock(&ht->tablelock);
                     return 0; // Successfully unsubscribed
                 }
@@ -191,7 +191,7 @@ int unsubscribe_client(HashTable *ht, const char *key, int notif_fd) {
 
             // Client not found in the subscriber list
             pthread_rwlock_unlock(&ht->tablelock);
-            printf("Client was not subscribed to key: %s\n", key);
+            //printf("Client was not subscribed to key: %s\n", key);
             return -1;
         }
         keyNode = keyNode->next; // Move to the next node
