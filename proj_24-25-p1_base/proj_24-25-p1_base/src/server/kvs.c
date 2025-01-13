@@ -5,6 +5,8 @@
 #include <unistd.h>
 #include "string.h"
 
+#include "constants.h"
+
 // Hash function based on key initial.
 // @param key Lowercase alphabetical string.
 // @return hash.
@@ -43,9 +45,9 @@ int write_pair(HashTable *ht, const char *key, const char *value) {
       // overwrite value
       free(keyNode->value);
       keyNode->value = strdup(value);
-      for(int i=0; i < 100; i++){
+      for(int i=0; i < S_VALUE; i++){
         if(keyNode->fd_notif_subscribers[i] != -1){
-          snprintf(buf, sizeof(buf), "(%s, %s)", keyNode->key, keyNode->value);
+          snprintf(buf, sizeof(buf), "(%s,%s)", keyNode->key, keyNode->value);
           write(keyNode->fd_notif_subscribers[i], buf, sizeof(buf));
         }
       }
@@ -104,9 +106,9 @@ int delete_pair(HashTable *ht, const char *key) {
       }
 
       // Notify all subscribed clients
-      for (int i = 0; i < 100; i++) {
+      for (int i = 0; i < S_VALUE; i++) {
         if (keyNode->fd_notif_subscribers[i] != -1) { // Ensure valid FD
-          snprintf(buf, sizeof(buf), "(%s, DELETED)", keyNode->key);
+          snprintf(buf, sizeof(buf), "(%s,DELETED)", keyNode->key);
           ssize_t bytes_written = write(keyNode->fd_notif_subscribers[i], buf, strlen(buf));
           if (bytes_written < 0) {
             perror("Error writing to notification pipe");
@@ -169,16 +171,10 @@ int subscribe_client(HashTable *ht, const char *key, int notif_fd) {
             }
 
             // Add the client to the list of subscribers
-            if (keyNode->subscriber_count < 100) { // Assuming max 100 subscribers per key
-                keyNode->fd_notif_subscribers[keyNode->subscriber_count++] = notif_fd;
-                printf("Client subscribed to key: %s with FD: %d\n", key, notif_fd);
-                pthread_rwlock_unlock(&ht->tablelock);
-                return 1;
-            } else {
-                // Max subscribers reached
-                pthread_rwlock_unlock(&ht->tablelock);
-                return 0;
-            }
+            keyNode->fd_notif_subscribers[keyNode->subscriber_count++] = notif_fd;
+            printf("Client subscribed to key: %s with FD: %d\n", key, notif_fd);
+            pthread_rwlock_unlock(&ht->tablelock);
+            return 0;
         }
         keyNode = keyNode->next; // Move to the next node
     }
@@ -186,13 +182,13 @@ int subscribe_client(HashTable *ht, const char *key, int notif_fd) {
     // Key not found
 
     pthread_rwlock_unlock(&ht->tablelock);
-    return 0;
+    return 1;
 }
 
 int unsubscribe_client(HashTable *ht, const char *key, int notif_fd) {
     int index = hash(key);
     if (index < 0 || index >= TABLE_SIZE) {
-        return -1; // Invalid index
+        return 1; // Invalid index
     }
 
     pthread_rwlock_wrlock(&ht->tablelock); // Lock for writing since we may modify the subscribers list
@@ -216,13 +212,13 @@ int unsubscribe_client(HashTable *ht, const char *key, int notif_fd) {
             // Client not found in the subscriber list
             pthread_rwlock_unlock(&ht->tablelock);
             //printf("Client was not subscribed to key: %s\n", key);
-            return -1;
+            return 1;
         }
         keyNode = keyNode->next; // Move to the next node
     }
 
     // Key not found
     pthread_rwlock_unlock(&ht->tablelock);
-    return -1;
+    return 1;
 }
 

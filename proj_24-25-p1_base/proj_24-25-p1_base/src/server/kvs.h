@@ -4,11 +4,12 @@
 
 #include <pthread.h>
 #include <stddef.h>
+#include "constants.h"
 
 typedef struct KeyNode {
   char *key;
   char *value;
-  int fd_notif_subscribers[100]; //maybe ver valor
+  int fd_notif_subscribers[S_VALUE]; //maybe ver valor
   int subscriber_count;
   struct KeyNode *next;
 } KeyNode;

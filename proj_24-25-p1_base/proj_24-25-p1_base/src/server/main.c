@@ -10,9 +10,11 @@
 #include <sys/stat.h>
 #include <semaphore.h>
 #include <errno.h>
+#include <signal.h>
 
 #include "../common/constants.h"
 #include "../common/protocol.h"
+#include "../common/io.h"
 #include "constants.h"
 #include "io.h"
 #include "operations.h"
@@ -41,12 +43,16 @@ typedef struct Client {
 } Client;
 
 Client clients_buf[S_VALUE];    // Array to store client information
+Client *thread_clients[S_VALUE]; // Array of currently executing clients, per thread
+
 int total_client_count = 0;           // Number of total clients
 
 int client_cons_idx;
 int client_prod_idx;
 sem_t client_cons_sem;
 sem_t client_prod_sem;
+
+int signal_usr1_flag = 0;
 
 pthread_mutex_t client_mutex = PTHREAD_MUTEX_INITIALIZER;  // Mutex to protect client list
 
@@ -276,7 +282,7 @@ int send_response(struct Client *client, int opcode, char response) {
     return 1;
   }
 
-  printf("Sent response %s\n", buf);
+//  printf("Sent response %s\n", buf);
 
   return 0;
 }
@@ -305,15 +311,34 @@ void add_client(int req_pipe, int resp_pipe, int notif_pipe) {
     sem_post(&client_cons_sem);
 }
 
-void remove_client(struct Client *client) {
-    // Log client removal
-    printf("Removing client with id %d\n", client->id);
-
-    // Close file descriptors
+void close_client(struct Client *client, int thread_id) {
+    pthread_mutex_lock(&client_mutex);
     close(client->req_pipe);
     close(client->resp_pipe);
     close(client->notif_pipe);
-;
+
+    client->req_pipe = -1;
+
+    thread_clients[thread_id] = NULL;
+    pthread_mutex_unlock(&client_mutex);
+}
+
+void remove_client(struct Client *client, int thread_id) {
+    pthread_mutex_lock(&client_mutex);
+    if (client->req_pipe == -1) {
+      pthread_mutex_unlock(&client_mutex);
+      return;
+    }
+
+    // Log client removal
+    printf("Removing client with id %d\n", client->id);
+    
+    kvs_global_unsubscribe(client->notif_pipe);
+
+    pthread_mutex_unlock(&client_mutex);
+    // Close file descriptors
+    close_client(client, thread_id);
+
     sem_post(&client_prod_sem);
 }
 
@@ -327,7 +352,6 @@ static void process_client(struct Client *client) {
     int res = -1;
 
     if (n <= 0) {
-      printf("Client disconnected abruptly\n");
       return;
     }
 
@@ -339,14 +363,12 @@ static void process_client(struct Client *client) {
         return;
       case OP_CODE_SUBSCRIBE:
         res = subscribe(sub_buf, client->notif_pipe);
-        
         send_response(client, OP_CODE_SUBSCRIBE, '0' + res);
         break;
       case OP_CODE_UNSUBSCRIBE:
         res = unsubscribe(sub_buf, client->notif_pipe);
         send_response(client, OP_CODE_UNSUBSCRIBE, '0' + res);
         break;
-
       default:
         fprintf(stderr, "Error processing request: unknown opcode %d\n", opcode);
         break;
@@ -354,7 +376,10 @@ static void process_client(struct Client *client) {
   }
 }
 
-static void get_client() {
+static void get_client(void *arg) {
+  int thread_id = *(int *)arg;
+  free(arg);
+
   for (;;) {
     sem_wait(&client_cons_sem);
 
@@ -363,10 +388,11 @@ static void get_client() {
     // this is necessary for a producer-consumer buffer 
     struct Client client = clients_buf[client_cons_idx];
     client_cons_idx = (client_cons_idx + 1) % S_VALUE;
+    thread_clients[thread_id] = &client;
     pthread_mutex_unlock(&client_mutex);
-    
+
     process_client(&client);
-    remove_client(&client);
+    remove_client(&client, thread_id);
   }
   // TODO: maybe not infinite loop?
 }
@@ -379,38 +405,78 @@ void init_clients() {
     clients_buf[i].req_pipe = -1;
     clients_buf[i].resp_pipe = -1;
     clients_buf[i].notif_pipe = -1;
+    
+    int *client_data = (int *)malloc(sizeof(int));
+    *client_data = i;
 
-    if (pthread_create(&clients_buf[i].thread, NULL, (void *)get_client, NULL) != 0) {
+    if (pthread_create(&clients_buf[i].thread, NULL, (void *)get_client, (void *)client_data) != 0) {
       fprintf(stderr, "Failed to create thread %zu\n", i);
       return;
     }
   }
 }
 
+void close_all_signal() {
+  signal_usr1_flag = 1;
+  signal(SIGUSR1, close_all_signal);
+}
+  
 void welcome_clients(void* arg) {
   int fserv, frep, fresp, fnot;
   ssize_t n;
 
-  char buf[121], rep_pipe_path[41] = "", resp_pipe_path[41] = "", notifications_pipe_path[41] = "";
+  char buf[121], rep_pipe_path[41] = {0}, resp_pipe_path[41] = {0}, notifications_pipe_path[41] = {0};
 
   struct HostThreadData *data = (struct HostThreadData *) (arg);
   fserv = data->host_pipe_fd;
 
+  sigset_t set;
+  sigemptyset(&set);
+  sigaddset(&set, SIGUSR1);
+  // sigaddset(&set, SIGPIPE);
+  pthread_sigmask(SIG_UNBLOCK, &set, NULL);
+
+  signal(SIGUSR1, close_all_signal);
+
   for (;;) {
-    n = read (fserv, buf, 121); 
+    if (signal_usr1_flag) {
+      signal_usr1_flag = 0;
+
+      for (int i = 0; i < S_VALUE; i++) {
+        if (thread_clients[i] == NULL) continue;
+        close_client(thread_clients[i], i);
+      }
+    }
+
+    int interrupt = 0; 
+    n = read_all(fserv, buf, 121, &interrupt);
+    
+    printf("AAAAAAA\n");
+    fflush(stdout);
+
+    if (interrupt) {
+      continue;
+    }
+
+    printf("CCCCCC\n");
+    fflush(stdout);
+
     if (n <= 0) break;
     printf("%s\n", buf);
+
+    printf("BBBBBBB\n");
+    fflush(stdout);
 
     if (buf[0] != '1') return;
     
     strncpy(rep_pipe_path, buf + 1, 40);
-    rep_pipe_path[41] = '\0';
+    rep_pipe_path[40] = '\0';
 
     strncpy(resp_pipe_path, buf + 41, 40);
-    resp_pipe_path[41] = '\0';
+    resp_pipe_path[40] = '\0';
     
     strncpy(notifications_pipe_path, buf + 81, 40);
-    notifications_pipe_path[41] = '\0';
+    notifications_pipe_path[40] = '\0';
 
     if ((frep = open(rep_pipe_path, O_RDONLY)) < 0) {
       perror("Error opening the named pipe");
@@ -452,6 +518,11 @@ static void dispatch_threads(DIR *dir, char const* host_pipe_path) {
   struct SharedData thread_data = {dir, jobs_directory,
                                    PTHREAD_MUTEX_INITIALIZER};
 
+  sigset_t set;
+  sigemptyset(&set);
+  sigaddset(&set, SIGUSR1);
+  sigaddset(&set, SIGPIPE);
+  pthread_sigmask(SIG_BLOCK, &set, NULL);
 
   init_clients();
 
@@ -459,14 +530,18 @@ static void dispatch_threads(DIR *dir, char const* host_pipe_path) {
   if (mkfifo(host_pipe_path, 0666) < 0){
     printf("Path: %s\n", host_pipe_path);
     perror("Error creating named pipe");
-    exit (1);
+    pthread_mutex_destroy(&thread_data.directory_mutex);
+    free(threads);
+    return;
   }
   
   printf("Pipe created: %s\n", host_pipe_path);
 
   if ((fserv = open(host_pipe_path, O_RDWR)) < 0) {
     perror("Error opening the named pipe");
-	  exit(1);
+    pthread_mutex_destroy(&thread_data.directory_mutex);
+    free(threads);
+    return;
   }
 
   printf("Server listening on pipe: %s\n", host_pipe_path);
@@ -478,6 +553,8 @@ static void dispatch_threads(DIR *dir, char const* host_pipe_path) {
   pthread_t host_thread;
   if (pthread_create(&host_thread, NULL, (void*)welcome_clients, (void*)(&data)) != 0) {
       fprintf(stderr, "Failed to create welcome thread\n");
+      pthread_mutex_destroy(&thread_data.directory_mutex);
+      free(threads); 
       return;
   }
 
@@ -490,7 +567,7 @@ static void dispatch_threads(DIR *dir, char const* host_pipe_path) {
       return;
     }
   }
-  
+
   for (unsigned int i = 0; i < max_threads; i++) {
     if (pthread_join(threads[i], NULL) != 0) {
       fprintf(stderr, "Failed to join thread %u\n", i);

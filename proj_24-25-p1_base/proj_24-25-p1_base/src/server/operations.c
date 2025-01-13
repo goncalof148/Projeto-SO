@@ -189,3 +189,26 @@ int subscribe(char *key, int notif_fd){
 int unsubscribe(char *key, int notif_fd){
   return unsubscribe_client(kvs_table, key, notif_fd);
 }
+
+int kvs_global_unsubscribe(int notif_fd) {
+  pthread_rwlock_wrlock(&kvs_table->tablelock);
+
+  for (int i = 0; i < TABLE_SIZE; i++) {
+    KeyNode *keyNode = kvs_table->table[i]; // Get the next list head
+    while (keyNode != NULL) {
+      for (int j = 0; j < keyNode->subscriber_count; j++) {
+        if (keyNode->fd_notif_subscribers[j] == notif_fd) {
+          keyNode->fd_notif_subscribers[j] = keyNode->fd_notif_subscribers[keyNode->subscriber_count - 1];
+          keyNode->subscriber_count--;
+          break;
+        }
+      }
+
+      keyNode = keyNode->next; // Move to the next node of the list
+    }
+  }
+
+  pthread_rwlock_unlock(&kvs_table->tablelock);
+  return 0;
+}
+

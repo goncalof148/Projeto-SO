@@ -66,4 +66,6 @@ int subscribe(char *key, int notif_fd);
 
 int unsubscribe(char *key, int notif_fd);
 
+int kvs_global_unsubscribe(int notif_fd);
+
 #endif // KVS_OPERATIONS_H
