@@ -8,9 +8,10 @@ READ [x,z,l,v]
 SHOW
 BACKUP
 WAIT 1000
-DELETE [e]
+WRITE [(e,pedro)(c,carlota)]
 READ [c]
 WAIT 1000
 WAIT 1000
+DELETE [e]
 WAIT 1000
 SHOW

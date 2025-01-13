@@ -91,25 +91,32 @@ int delete_pair(HashTable *ht, const char *key) {
   KeyNode *keyNode = ht->table[index];
   KeyNode *prevNode = NULL;
   char buf[85] = "";
+
   while (keyNode != NULL) {
     if (strcmp(keyNode->key, key) == 0) {
       // Key found; delete this node
       if (prevNode == NULL) {
         // Node to delete is the first node in the list
-        ht->table[index] =
-            keyNode->next; // Update the table to point to the next node
+        ht->table[index] = keyNode->next; // Update the table to point to the next node
       } else {
         // Node to delete is not the first; bypass it
-        prevNode->next =
-            keyNode->next; // Link the previous node to the next node
+        prevNode->next = keyNode->next; // Link the previous node to the next node
       }
-      for(int i=0; i < 100; i++){
-        if(keyNode->fd_notif_subscribers[i] != -1){
+
+      // Notify all subscribed clients
+      for (int i = 0; i < 100; i++) {
+        if (keyNode->fd_notif_subscribers[i] != -1) { // Ensure valid FD
           snprintf(buf, sizeof(buf), "(%s, DELETED)", keyNode->key);
-          printf("DELETEEEEE %d\n",keyNode->fd_notif_subscribers[i]);
-          write(keyNode->fd_notif_subscribers[i], buf, sizeof(buf));
+          ssize_t bytes_written = write(keyNode->fd_notif_subscribers[i], buf, strlen(buf));
+          if (bytes_written < 0) {
+            perror("Error writing to notification pipe");
+          } else {
+            printf("Notification sent to FD %d: %s (%ld bytes)\n",
+                   keyNode->fd_notif_subscribers[i], buf, bytes_written);
+          }
         }
       }
+
       // Free the memory allocated for the key and value
       free(keyNode->key);
       free(keyNode->value);
@@ -120,8 +127,9 @@ int delete_pair(HashTable *ht, const char *key) {
     keyNode = keyNode->next; // Move to the next node
   }
 
-  return 1;
+  return 1; // Key not found
 }
+
 
 void free_table(HashTable *ht) {
   for (int i = 0; i < TABLE_SIZE; i++) {

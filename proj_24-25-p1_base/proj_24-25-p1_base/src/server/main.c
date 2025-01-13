@@ -434,8 +434,8 @@ void welcome_clients(void* arg) {
     }
 
     // NOTE: should open client pipes here or in add_client? (or in get_client?)
-    char bufff[21] = "NOTIFICATIONS OPENED\n";
-    write(fnot, bufff, sizeof(buf));
+    //char bufff[21] = "NOTIFICATIONS OPENED\n";
+    //write(fnot, bufff, sizeof(buf));
     add_client(frep, fresp, fnot);
   }
 }
