@@ -312,7 +312,6 @@ void add_client(int req_pipe, int resp_pipe, int notif_pipe) {
 }
 
 void close_client(struct Client *client, int thread_id) {
-    pthread_mutex_lock(&client_mutex);
     close(client->req_pipe);
     close(client->resp_pipe);
     close(client->notif_pipe);
@@ -320,25 +319,24 @@ void close_client(struct Client *client, int thread_id) {
     client->req_pipe = -1;
 
     thread_clients[thread_id] = NULL;
-    pthread_mutex_unlock(&client_mutex);
 }
 
 void remove_client(struct Client *client, int thread_id) {
     pthread_mutex_lock(&client_mutex);
+     // Log client removal
+    printf("Removing client with id %d\n", client->id);
+    
+    kvs_global_unsubscribe(client->notif_pipe);
+
     if (client->req_pipe == -1) {
       pthread_mutex_unlock(&client_mutex);
       return;
     }
 
-    // Log client removal
-    printf("Removing client with id %d\n", client->id);
-    
-    kvs_global_unsubscribe(client->notif_pipe);
-
-    pthread_mutex_unlock(&client_mutex);
     // Close file descriptors
     close_client(client, thread_id);
 
+    pthread_mutex_unlock(&client_mutex);
     sem_post(&client_prod_sem);
 }
 
@@ -433,7 +431,6 @@ void welcome_clients(void* arg) {
   sigset_t set;
   sigemptyset(&set);
   sigaddset(&set, SIGUSR1);
-  // sigaddset(&set, SIGPIPE);
   pthread_sigmask(SIG_UNBLOCK, &set, NULL);
 
   signal(SIGUSR1, close_all_signal);
@@ -441,31 +438,24 @@ void welcome_clients(void* arg) {
   for (;;) {
     if (signal_usr1_flag) {
       signal_usr1_flag = 0;
-
+      
+      pthread_mutex_lock(&client_mutex);
       for (int i = 0; i < S_VALUE; i++) {
         if (thread_clients[i] == NULL) continue;
         close_client(thread_clients[i], i);
       }
+      pthread_mutex_unlock(&client_mutex); 
     }
 
     int interrupt = 0; 
     n = read_all(fserv, buf, 121, &interrupt);
     
-    printf("AAAAAAA\n");
-    fflush(stdout);
-
     if (interrupt) {
       continue;
     }
 
-    printf("CCCCCC\n");
-    fflush(stdout);
-
     if (n <= 0) break;
     printf("%s\n", buf);
-
-    printf("BBBBBBB\n");
-    fflush(stdout);
 
     if (buf[0] != '1') return;
     
