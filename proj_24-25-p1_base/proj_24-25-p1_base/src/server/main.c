@@ -18,6 +18,7 @@
 #include "operations.h"
 #include "parser.h"
 #include "pthread.h"
+#include "kvs.h"
 
 struct SharedData {
   DIR *dir;
@@ -317,11 +318,13 @@ void remove_client(struct Client *client) {
 }
 
 static void process_client(struct Client *client) {
-  send_response(client, OP_CODE_CONNECT, 0);
+  send_response(client, OP_CODE_CONNECT, '0');
 
   for (;;) {
     char req_buf[121];
+    char *sub_buf = req_buf + 1;
     int n = read(client->req_pipe, req_buf, sizeof(req_buf));
+    int res = -1;
 
     if (n <= 0) {
       printf("Client disconnected abruptly\n");
@@ -332,8 +335,17 @@ static void process_client(struct Client *client) {
     switch (opcode) {
       case OP_CODE_DISCONNECT:
         printf("Closing client\n");
-        send_response(client, OP_CODE_DISCONNECT, 0);
+        send_response(client, OP_CODE_DISCONNECT, '0');
         return;
+      case OP_CODE_SUBSCRIBE:
+        res = subscribe(sub_buf, client->notif_pipe);
+        send_response(client, OP_CODE_SUBSCRIBE, '0' + res);
+        break;
+      case OP_CODE_UNSUBSCRIBE:
+        res = unsubscribe(sub_buf, client->notif_pipe);
+        send_response(client, OP_CODE_UNSUBSCRIBE, '0' + res);
+        break;
+
       default:
         fprintf(stderr, "Error processing request: unknown opcode %d\n", opcode);
         break;
@@ -438,15 +450,6 @@ static void dispatch_threads(DIR *dir, char const* host_pipe_path) {
   struct SharedData thread_data = {dir, jobs_directory,
                                    PTHREAD_MUTEX_INITIALIZER};
 
-  for (size_t i = 0; i < max_threads; i++) {
-    if (pthread_create(&threads[i], NULL, get_file, (void *)&thread_data) !=
-        0) {
-      fprintf(stderr, "Failed to create thread %zu\n", i);
-      pthread_mutex_destroy(&thread_data.directory_mutex);
-      free(threads);
-      return;
-    }
-  }
 
   init_clients();
 
@@ -476,6 +479,16 @@ static void dispatch_threads(DIR *dir, char const* host_pipe_path) {
       return;
   }
 
+  for (size_t i = 0; i < max_threads; i++) {
+    if (pthread_create(&threads[i], NULL, get_file, (void *)&thread_data) !=
+        0) {
+      fprintf(stderr, "Failed to create thread %zu\n", i);
+      pthread_mutex_destroy(&thread_data.directory_mutex);
+      free(threads);
+      return;
+    }
+  }
+  
   for (unsigned int i = 0; i < max_threads; i++) {
     if (pthread_join(threads[i], NULL) != 0) {
       fprintf(stderr, "Failed to join thread %u\n", i);
@@ -553,7 +566,7 @@ int main(int argc, char **argv) {
     wait(NULL);
     active_backups--;
   }
-  
+
   kvs_terminate();
   printf("Closing pipe: %s\n", argv[4]);
   unlink(argv[4]);

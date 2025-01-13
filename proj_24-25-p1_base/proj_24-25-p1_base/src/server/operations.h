@@ -62,4 +62,8 @@ void set_n_current_backups(int _n_current_backups);
 // @return n_current_backups
 int get_n_current_backups();
 
+int subscribe(char *key, int notif_fd); 
+
+int unsubscribe(char *key, int notif_fd);
+
 #endif // KVS_OPERATIONS_H

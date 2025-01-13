@@ -47,13 +47,25 @@ int open_pipe(char const *pipe_path, int pipe_flags, int *fd_out) {
 
 int read_response(int opcode) {
   char buf[2];
+  char buf2[11];
   ssize_t n = read(connection.resp_pipe, buf, 2);
   
   if (n < 2) {
     return -1;
   }
+  
+if (buf[0] == '1') {
+    strcat(buf2, "CONNECT");
+} else if (buf[0] == '2') {
+    strcat(buf2, "DISCONNECT");
+} else if (buf[0] == '3') {
+    strcat(buf2, "SUBSCRIBE");
+} else if (buf[0] == '4') {
+    strcat(buf2, "UNSUBSCRIBE");
+} 
 
-  printf("%s\n", buf);
+printf("Server returned %c for operation: %s\n", buf[1], buf2);
+
 
   if (buf[0] != '0' + opcode) {
     return -1;
@@ -117,7 +129,7 @@ int kvs_connect(char const *req_pipe_path, char const *resp_pipe_path,
 
   fflush(stdout);
 
-  if (read_response(OP_CODE_CONNECT) != 0) {
+  if (read_response(OP_CODE_CONNECT) != '0') {
     return 1;
   }
 

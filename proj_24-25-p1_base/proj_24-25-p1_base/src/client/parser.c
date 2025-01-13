@@ -137,7 +137,6 @@ enum Command get_next(int fd) {
 
   case '\n':
     return CMD_EMPTY;
-
   default:
     cleanup(fd);
     return CMD_INVALID;

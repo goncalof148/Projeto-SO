@@ -17,6 +17,7 @@ int main(int argc, char *argv[]) {
             argv[0]);
     return 1;
   }
+  
   char req_pipe_path[256] = "/tmp/req";
   char resp_pipe_path[256] = "/tmp/resp";
   char notif_pipe_path[256] = "/tmp/notif";
