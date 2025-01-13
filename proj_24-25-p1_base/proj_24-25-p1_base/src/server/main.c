@@ -282,18 +282,7 @@ int send_response(struct Client *client, int opcode, char response) {
     return 1;
   }
 
-//  printf("Sent response %s\n", buf);
-
   return 0;
-}
-
-int find_free_position() {
-    for (int i = 0; i <= S_VALUE; i++) {
-        if (clients_buf[i].req_pipe == -1) {  // Check if the slot is free
-            return i;  // Return the free position
-        }
-    }
-    return -1;  // No free position found
 }
 
 void add_client(int req_pipe, int resp_pipe, int notif_pipe) {
@@ -326,7 +315,7 @@ void remove_client(struct Client *client, int thread_id) {
      // Log client removal
     printf("Removing client with id %d\n", client->id);
     
-    kvs_global_unsubscribe(client->notif_pipe);
+    kvs_unsubscribe_client(client->notif_pipe);
 
     if (client->req_pipe == -1) {
       pthread_mutex_unlock(&client_mutex);
@@ -360,11 +349,11 @@ static void process_client(struct Client *client) {
         send_response(client, OP_CODE_DISCONNECT, '0');
         return;
       case OP_CODE_SUBSCRIBE:
-        res = subscribe(sub_buf, client->notif_pipe);
+        res = kvs_subscribe(sub_buf, client->notif_pipe);
         send_response(client, OP_CODE_SUBSCRIBE, '0' + res);
         break;
       case OP_CODE_UNSUBSCRIBE:
-        res = unsubscribe(sub_buf, client->notif_pipe);
+        res = kvs_unsubscribe(sub_buf, client->notif_pipe);
         send_response(client, OP_CODE_UNSUBSCRIBE, '0' + res);
         break;
       default:
@@ -392,7 +381,6 @@ static void get_client(void *arg) {
     process_client(&client);
     remove_client(&client, thread_id);
   }
-  // TODO: maybe not infinite loop?
 }
 
 void init_clients() {
@@ -489,9 +477,6 @@ void welcome_clients(void* arg) {
       printf("NOT pipe opened: %s\n", notifications_pipe_path);
     }
 
-    // NOTE: should open client pipes here or in add_client? (or in get_client?)
-    //char bufff[21] = "NOTIFICATIONS OPENED\n";
-    //write(fnot, bufff, sizeof(buf));
     add_client(frep, fresp, fnot);
   }
 }

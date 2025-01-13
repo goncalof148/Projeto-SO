@@ -28,6 +28,9 @@ void *notification_handler(void *arg) {
         if (bytes_read > 0) {
             notif_buf[bytes_read] = '\0'; // Null-terminate the string
             printf("Notification received: %s\n", notif_buf);
+        } else if (bytes_read == 0) {
+            printf("SIGUSR1 close");
+            _exit(0);
         } else if (bytes_read < 0 && errno != EAGAIN) {
             perror("Error reading notification pipe");
             printf("Error occurred on FD: %d\n", notif_fd);
@@ -122,6 +125,10 @@ int main(int argc, char *argv[]) {
     char resp_pipe_path[256] = "/tmp/resp";
     char notif_pipe_path[256] = "/tmp/notif";
     int notif_fd;
+
+    strncat(req_pipe_path, argv[1], strlen(argv[1]) * sizeof(char));
+    strncat(resp_pipe_path, argv[1], strlen(argv[1]) * sizeof(char));
+    strncat(notif_pipe_path, argv[1], strlen(argv[1]) * sizeof(char));
 
     // Connect to the server
     if (kvs_connect(req_pipe_path, resp_pipe_path, argv[2], notif_pipe_path, &notif_fd) == 1) {

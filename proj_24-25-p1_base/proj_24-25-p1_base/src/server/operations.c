@@ -182,15 +182,15 @@ void kvs_wait(unsigned int delay_ms) {
   nanosleep(&delay, NULL);
 }
 
-int subscribe(char *key, int notif_fd){
+int kvs_subscribe(char *key, int notif_fd){
   return subscribe_client(kvs_table, key, notif_fd);
 }
 
-int unsubscribe(char *key, int notif_fd){
+int kvs_unsubscribe(char *key, int notif_fd){
   return unsubscribe_client(kvs_table, key, notif_fd);
 }
 
-int kvs_global_unsubscribe(int notif_fd) {
+int kvs_unsubscribe_client(int notif_fd) {
   pthread_rwlock_wrlock(&kvs_table->tablelock);
 
   for (int i = 0; i < TABLE_SIZE; i++) {
