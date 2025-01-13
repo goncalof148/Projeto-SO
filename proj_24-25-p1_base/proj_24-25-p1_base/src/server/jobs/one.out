@@ -1,18 +1,18 @@
 [(x,KVSERROR)(z,KVSERROR)(l,leonel)(v,KVSERROR)]
-(a, dinis)
+(a, anna)
 (b, bernardo)
 (c, carlota)
-(e, edmundo)
+(e, dinis)
 (f, felix)
 (h, helio)
 (i, ignacio)
 (j, joana)
 (k, katia)
 (l, leonel)
-[(c,KVSERROR)]
-(a, dinis)
+[(c,carlota)]
+(a, anna)
 (b, bernardo)
-(e, edmundo)
+(c, carlota)
 (f, felix)
 (h, helio)
 (i, ignacio)

@@ -339,6 +339,7 @@ static void process_client(struct Client *client) {
         return;
       case OP_CODE_SUBSCRIBE:
         res = subscribe(sub_buf, client->notif_pipe);
+        
         send_response(client, OP_CODE_SUBSCRIBE, '0' + res);
         break;
       case OP_CODE_UNSUBSCRIBE:
@@ -433,7 +434,8 @@ void welcome_clients(void* arg) {
     }
 
     // NOTE: should open client pipes here or in add_client? (or in get_client?)
-
+    char bufff[21] = "NOTIFICATIONS OPENED\n";
+    write(fnot, bufff, sizeof(buf));
     add_client(frep, fresp, fnot);
   }
 }

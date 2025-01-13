@@ -47,22 +47,21 @@ int open_pipe(char const *pipe_path, int pipe_flags, int *fd_out) {
 
 int read_response(int opcode) {
   char buf[2];
-  char buf2[11];
+  char buf2[12];
   ssize_t n = read(connection.resp_pipe, buf, 2);
   
   if (n < 2) {
     return -1;
   }
   
-if (buf[0] == '1') {
-    strcat(buf2, "CONNECT");
-} else if (buf[0] == '2') {
-    strcat(buf2, "DISCONNECT");
-} else if (buf[0] == '3') {
-    strcat(buf2, "SUBSCRIBE");
-} else if (buf[0] == '4') {
-    strcat(buf2, "UNSUBSCRIBE");
-} 
+switch (buf[0]) {
+        case '1': strcpy(buf2, "CONNECT"); break;
+        case '2': strcpy(buf2, "DISCONNECT"); break;
+        case '3': strcpy(buf2, "SUBSCRIBE"); break;
+        case '4': strcpy(buf2, "UNSUBSCRIBE"); break;
+        default: strcpy(buf2, "UNKNOWN"); break;
+  }
+
 
 printf("Server returned %c for operation: %s\n", buf[1], buf2);
 
@@ -82,13 +81,12 @@ int send_message(int opcode, char *message_buf) {
     return 1;
   }
 
-  int response = read_response(opcode);
-  printf("%d", response);
+  read_response(opcode);
   return 0;
 }
 
 int kvs_connect(char const *req_pipe_path, char const *resp_pipe_path,
-                char const *server_pipe_path, char const *notif_pipe_path) {
+                char const *server_pipe_path, char const *notif_pipe_path, int *notif_fd) {
   int fserv;
 
   connection.req_pipe_path = req_pipe_path;
@@ -121,9 +119,11 @@ int kvs_connect(char const *req_pipe_path, char const *resp_pipe_path,
 
   if (open_pipe(req_pipe_path, O_WRONLY, &connection.req_pipe) != 0
     || open_pipe(resp_pipe_path, O_RDONLY, &connection.resp_pipe) != 0
-    || open_pipe(notif_pipe_path, O_RDONLY | O_NONBLOCK, &connection.notif_pipe) != 0) {
+    || open_pipe(notif_pipe_path, O_RDONLY, &connection.notif_pipe) != 0) {
     return 1;
   }
+
+  *notif_fd = connection.notif_pipe;
 
   printf("Waiting for server response...\n");
 

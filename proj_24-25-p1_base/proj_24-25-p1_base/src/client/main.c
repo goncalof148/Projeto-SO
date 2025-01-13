@@ -5,6 +5,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <errno.h>
 
 #include "parser.h"
 #include "api.h"
@@ -22,17 +23,28 @@ int main(int argc, char *argv[]) {
   char resp_pipe_path[256] = "/tmp/resp";
   char notif_pipe_path[256] = "/tmp/notif";
 
+
   char keys[MAX_NUMBER_SUB][MAX_STRING_SIZE] = {0};
   unsigned int delay_ms;
+  int notif_fd;
   size_t num;
 
   // TODO open pipes
-  if (kvs_connect(req_pipe_path, resp_pipe_path, argv[2], notif_pipe_path) == 1) {
+  if (kvs_connect(req_pipe_path, resp_pipe_path, argv[2], notif_pipe_path, &notif_fd) == 1) {
       fflush(stdout);
       exit(1);
   }
 
   while (1) {
+    char notif_buf[256] = {0};
+    ssize_t bytes_read = read(notif_fd, notif_buf, sizeof(notif_buf) - 1);
+    if (bytes_read > 0) {
+        notif_buf[bytes_read] = '\0'; // Null-terminate the string
+        printf("Notification received: %s\n", notif_buf);
+    } else if (bytes_read < 0 && errno != EAGAIN) {
+        perror("Error reading notification pipe");
+        break;
+    }
     switch (get_next(STDIN_FILENO)) {
     case CMD_DISCONNECT:
       if (kvs_disconnect() != 0) {

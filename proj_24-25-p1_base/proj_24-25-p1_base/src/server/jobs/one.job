@@ -3,11 +3,12 @@ WRITE [(a,anna)(b,bernardo)]
 WAIT 1000
 WAIT 1000
 WAIT 1000
-WRITE [(a,dinis)(c,carlota)]
+WRITE [(e,dinis)(c,carlota)]
 READ [x,z,l,v]
 SHOW
 BACKUP
-DELETE [c]
+WAIT 1000
+DELETE [e]
 READ [c]
 WAIT 1000
 WAIT 1000
